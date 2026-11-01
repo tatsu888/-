@@ -1,0 +1,12 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# node
+node_modules/
+frontend/dist/
+# runtime data (watchlists, alerts, uploaded workbooks)
+data/
+*.log
+.DS_Store
