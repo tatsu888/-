@@ -158,6 +158,7 @@ class ExcelLibrary:
         if hit and hit[0] == mtime:
             return hit[1]
         data = self._render(path)
+        self._fill_uncached(data)
         data.update(id=file_id, name=path.name, mtime=mtime, write_mode=write_mode(),
                     lossy_parts=self.lossy_parts(path))
         self._cache[file_id] = (mtime, data)
@@ -248,6 +249,22 @@ class ExcelLibrary:
                     st[key] = side.style
         return st or None
 
+    @staticmethod
+    def _fill_uncached(data: dict[str, Any]) -> None:
+        """Files saved by tools other than Excel (openpyxl, pandas ...) have formulas without cached
+        values. Fill those with the engine and flag them ``calc`` so the UI can mark them."""
+        sheets = {sh["name"]: {a: {"f": c.get("f"), "v": c.get("v")} for a, c in sh["cells"].items()}
+                  for sh in data["sheets"]}
+        ev = F.Evaluator(sheets)
+        n = 0
+        for sh in data["sheets"]:
+            for addr, c in sh["cells"].items():
+                if c.get("f") and c.get("v") is None:
+                    c["v"] = _jsonable(ev.value(sh["name"], addr))
+                    c["calc"] = True
+                    n += 1
+        data["engine_filled"] = n
+
     # ---- what-if (non-destructive) ----------------------------------------
     def whatif(self, file_id: str, overrides: dict[str, Any], quote: F.QuoteLookup | None = None) -> dict[str, Any]:
         """overrides: {"Sheet1!B5": 1.2 or "=B4*2"} -> recomputed values of formula cells that changed."""
@@ -277,7 +294,10 @@ class ExcelLibrary:
                 if _differs(new, base_ev.value(sh, addr)):
                     changed[f"{sh}!{addr}"] = _jsonable(new)
         stale = sorted(f"{sh}!{a}" for sh, a in ev.stale)  # unsupported functions -> Excel cached value kept
-        return {"changed": changed, "stale": stale, "tv_symbols": sorted(ev.tv_symbols)}
+        # cells driven by live market data (=TV(...)) are always returned
+        live = {f"{sh}!{a}": _jsonable(ev.value(sh, a)) for sh, cells in sheets.items() for a, c in cells.items()
+                if c.get("f") and "TV(" in c["f"].upper()}
+        return {"changed": changed, "live": live, "stale": stale, "tv_symbols": sorted(ev.tv_symbols)}
 
     # ---- open in Excel / write-back --------------------------------------
     def open_native(self, file_id: str) -> dict[str, Any]:

@@ -1,0 +1,129 @@
+import { useEffect, useRef, useState } from 'react';
+import { api } from '../lib/api';
+import { FUNCTIONS, parseCommand, quickResolve } from '../lib/commands';
+import { useTerminal } from '../ctx';
+
+interface Sug {
+  key: string;
+  desc: string;
+  apply: string;
+}
+
+/** Bloomberg-style command line: "<SECURITY> <FUNCTION> <GO>". */
+export function CommandLine() {
+  const { run, toast } = useTerminal();
+  const [text, setText] = useState('');
+  const [sugs, setSugs] = useState<Sug[]>([]);
+  const [sel, setSel] = useState(0);
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // any printable key when nothing else is focused goes to the command line (terminal feel)
+      const t = e.target as HTMLElement;
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key.length === 1 || e.key === 'Backspace') ref.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useEffect(() => {
+    const t = text.trim();
+    if (!t) return setSugs([]);
+    const toks = t.split(/\s+/);
+    const last = toks[toks.length - 1].toUpperCase();
+    const fnSugs: Sug[] = FUNCTIONS.filter((f) => f.code.startsWith(last))
+      .slice(0, 6)
+      .map((f) => ({ key: f.code, desc: `${f.name} — ${f.desc}`, apply: [...toks.slice(0, -1), f.code].join(' ') }));
+    if (toks.length > 1 || last.length < 1) return setSugs(fnSugs);
+    let alive = true;
+    const h = setTimeout(() => {
+      api
+        .get<{ symbol: string; description: string; type: string }[]>('/search', { q: toks[0], limit: 8 })
+        .then((r) => {
+          if (!alive) return;
+          setSugs([...fnSugs, ...r.map((s) => ({ key: s.symbol, desc: `${s.description} ${s.type ? '· ' + s.type : ''}`, apply: s.symbol + ' ' }))]);
+        })
+        .catch(() => alive && setSugs(fnSugs));
+    }, 180);
+    setSugs(fnSugs);
+    return () => {
+      alive = false;
+      clearTimeout(h);
+    };
+  }, [text]);
+
+  async function submit(raw = text) {
+    const p = parseCommand(raw);
+    if (!p.fn && !p.security) return;
+    let sec: string | undefined;
+    if (p.security) {
+      sec = quickResolve(p.security) ?? undefined;
+      if (!sec) {
+        try {
+          const r = await api.get<{ symbol: string }[]>('/search', { q: p.security, limit: 1 });
+          sec = r[0]?.symbol ?? `NASDAQ:${p.security.toUpperCase()}`;
+        } catch {
+          sec = `NASDAQ:${p.security.toUpperCase()}`;
+          toast(`search unavailable — assuming ${sec}`);
+        }
+      }
+    }
+    run(p.fn ?? '', sec, p.args);
+    setText('');
+    setSugs([]);
+  }
+
+  return (
+    <div className="cmd">
+      <input
+        ref={ref}
+        value={text}
+        placeholder="例: AAPL GP · 7203 DES · USDJPY GP · WEI · LAG oil_energy · FACT · MODEL · HELP   [Enter=GO]"
+        onChange={(e) => {
+          setText(e.target.value);
+          setSel(0);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (sugs.length && sel > 0) {
+              setText(sugs[sel - 1].apply);
+              setSel(0);
+            } else submit();
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSel((s) => Math.min(s + 1, sugs.length));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSel((s) => Math.max(s - 1, 0));
+          } else if (e.key === 'Tab' && sugs.length) {
+            e.preventDefault();
+            setText(sugs[Math.max(sel - 1, 0)].apply);
+          } else if (e.key === 'Escape') {
+            setText('');
+            setSugs([]);
+          }
+        }}
+        spellCheck={false}
+      />
+      <button className="go" onClick={() => submit()}>
+        GO
+      </button>
+      <button className="cancel" onClick={() => (setText(''), setSugs([]))}>
+        CANCEL
+      </button>
+      {sugs.length > 0 && (
+        <div className="suggest">
+          {sugs.map((s, i) => (
+            <div key={s.key + i} className={i + 1 === sel ? 'sel' : ''} onMouseDown={() => setText(s.apply)}>
+              <span className="k">{s.key}</span>
+              <span className="d">{s.desc}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

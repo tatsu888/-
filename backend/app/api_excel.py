@@ -71,7 +71,18 @@ class WhatIfReq(BaseModel):
 
 @router.post("/whatif")
 async def whatif(req: WhatIfReq):
-    return _wrap(S.excel.whatif, req.id, req.overrides, _quote)
+    res = _wrap(S.excel.whatif, req.id, req.overrides, _quote)
+    if res["tv_symbols"] and S.hub:  # make sure TV() symbols are streaming so values fill in
+        missing = [s for s in res["tv_symbols"] if s not in S.hub.last_quotes]
+        if missing:
+            try:
+                prov = await S.provider()
+                for q in await prov.get_quotes(missing):
+                    S.hub.last_quotes[q["symbol"]] = q
+                res = _wrap(S.excel.whatif, req.id, req.overrides, _quote)
+            except Exception:  # noqa: BLE001
+                pass
+    return res
 
 
 class OpenReq(BaseModel):
