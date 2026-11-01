@@ -115,6 +115,25 @@ class TVWeb:
         } for x in rows]
         return sorted(out, key=lambda e: e.get("date") or "")
 
+    # ---- universe scan (cross-sectional factor analysis) -------------------
+    async def scan_universe(self, market: str, columns: list[str], limit: int = 500,
+                            min_mcap: float = 0.0) -> list[dict[str, Any]]:
+        body = {
+            "columns": columns,
+            "filter": [{"left": "market_cap_basic", "operation": "greater", "right": min_mcap},
+                       {"left": "type", "operation": "equal", "right": "stock"}],
+            "sort": {"sortBy": "market_cap_basic", "sortOrder": "desc"},
+            "range": [0, limit], "options": {"lang": "en"}, "markets": [market],
+        }
+        try:
+            r = await self.http.post(SCAN_URL.format(market=market), content=json.dumps(body),
+                                     headers={"Content-Type": "application/json"})
+            r.raise_for_status()
+            data = r.json()
+        except Exception as e:  # noqa: BLE001
+            raise ProviderError(f"scanner failed: {e}") from e
+        return [{"symbol": row.get("s"), **dict(zip(columns, row.get("d", [])))} for row in data.get("data", [])]
+
     # ---- fundamentals -----------------------------------------------------
     async def fundamentals(self, symbol: str) -> dict[str, Any]:
         market = market_for(symbol)

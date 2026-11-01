@@ -19,6 +19,8 @@ DEFAULTS: dict[str, Any] = {
     "notes": {},          # symbol -> text
     "layout": None,       # frontend panel layout
     "settings": {},
+    "excel_links": {},    # symbol -> [excel file ids] (manual links; auto-links come from filenames)
+    "harness_models": {}, # name -> forecast harness spec (JSON)
 }
 
 ALLOWED_KEYS = tuple(DEFAULTS)

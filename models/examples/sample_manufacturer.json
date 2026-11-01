@@ -1,0 +1,52 @@
+{
+  "_comment": "Illustrative sample only — numbers are made up to demonstrate the harness. Units: revenue etc. in JPY bn, shares in mn, so per_share_factor = 1000 (bn/mn -> JPY per share).",
+  "company": {"symbol": "SAMPLE:MFG", "name": "Sample Manufacturing Co. (fictional)", "currency": "JPY", "unit": "bn"},
+  "history": {
+    "years":   ["FY2019", "FY2020", "FY2021", "FY2022", "FY2023", "FY2024"],
+    "revenue": [1000, 940, 1050, 1150, 1230, 1300],
+    "cogs":    [760, 730, 790, 860, 915, 960],
+    "sga":     [150, 148, 155, 162, 170, 176],
+    "da":      [40, 41, 43, 45, 47, 50],
+    "capex":   [55, 45, 52, 60, 66, 70],
+    "non_operating": [5, 3, 6, 8, 7, 9],
+    "units":   [500, 470, 515, 548, 570, 590],
+    "industry_production": [100, 92, 101, 106, 109, 112]
+  },
+  "forecast_years": ["FY2025E", "FY2026E", "FY2027E", "FY2028E", "FY2029E"],
+  "lines": {
+    "units":   {"method": "growth", "params": {"rates": [0.03, 0.03, 0.025, 0.02, 0.02], "source": "industry association volume outlook (example)"}},
+    "price":   {"method": "growth", "params": {"base": 2.2034, "rates": 0.01, "source": "historical avg price increase ~1%/yr (example)"}},
+    "revenue": {"method": "price_volume", "params": {"volume": {"line": "units"}, "price": {"line": "price"}}},
+    "cogs":    {"method": "fixed_variable", "params": {"of": "revenue", "fixed_growth": 0.01}},
+    "sga":     {"method": "hist_avg_pct_of", "params": {"of": "revenue", "years": 3}},
+    "capex":   {"method": "pct_of", "params": {"of": "revenue", "pct": 0.054, "source": "mid-term plan capex/sales (example)"}},
+    "da":      {"method": "pct_of_prior", "params": {"of": "capex", "pct": 0.75, "source": "D&A/prior capex ratio (example)"}},
+    "non_operating": {"method": "values", "params": {"values": 8, "source": "flat at 3y average (example)"}}
+  },
+  "assumptions": {"tax_rate": 0.30, "minority_pct": 0.02, "payout_ratio": 0.35, "dso": 60, "dio": 50, "dpo": 45,
+                  "shares": 400, "per_share_factor": 1000},
+  "valuation": {
+    "wacc": {"rf": 0.01, "beta": 1.1, "erp": 0.06, "cost_of_debt": 0.012, "tax_rate": 0.30, "debt_weight": 0.2},
+    "terminal_growth": 0.01, "exit_ev_ebitda": 7.0, "net_debt": 120, "book_equity": 900,
+    "multiples": {"per": 13, "ev_ebitda": 7, "pbr": 1.1, "year_index": 0},
+    "current_price": 2000
+  },
+  "scenarios": {
+    "bull": {"lines.units.params.rates": [0.05, 0.05, 0.04, 0.03, 0.03], "probability": 0.25, "description": "volume recovery"},
+    "base": {"probability": 0.5, "description": "as modelled"},
+    "bear": {"lines.units.params.rates": [-0.02, 0.0, 0.01, 0.01, 0.01], "probability": 0.25, "description": "demand slowdown"}
+  },
+  "sensitivity": {
+    "x": {"path": "valuation.wacc.erp", "values": [0.05, 0.055, 0.06, 0.065, 0.07]},
+    "y": {"path": "valuation.terminal_growth", "values": [0.0, 0.005, 0.01, 0.015, 0.02]},
+    "output": "valuation.dcf.price_per_share"
+  },
+  "monte_carlo": {
+    "n": 500, "seed": 7, "output": "valuation.dcf.price_per_share", "current_price": 2000,
+    "drivers": {
+      "lines.units.params.rates": {"dist": "normal", "mean": 0.025, "sd": 0.02},
+      "valuation.terminal_growth": {"dist": "triangular", "low": 0.0, "mode": 0.01, "high": 0.02}
+    }
+  },
+  "checks": {}
+}

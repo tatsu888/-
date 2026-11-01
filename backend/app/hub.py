@@ -44,6 +44,22 @@ class Hub:
         provider.on_quote = self._on_quote
         provider.on_bar = self._on_bar
 
+    async def set_provider(self, provider: Provider) -> None:
+        """Switch the streaming source at runtime (manual TradingView / Yahoo / SIM toggle)."""
+        old = self.provider
+        if old is provider:
+            return
+        old.on_quote = None
+        old.on_bar = None
+        await old.set_quote_symbols(set())
+        await old.set_bar_subscriptions(set())
+        self.provider = provider
+        provider.on_quote = self._on_quote
+        provider.on_bar = self._on_bar
+        self.last_quotes.clear()
+        await self.resync()
+        await self.broadcast({"type": "provider", **provider.health()})
+
     async def start(self) -> None:
         self._flush_task = asyncio.create_task(self._flush_loop(), name="hub-flush")
 

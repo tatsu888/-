@@ -477,6 +477,8 @@ class Evaluator:
         self.stack: set[tuple[str, str]] = set()
         self.ast_cache: dict[str, Any] = {}
         self.tv_symbols: set[str] = set()
+        #: formula cells the engine could not evaluate; their cached value (from Excel) was used
+        self.stale: set[tuple[str, str]] = set()
 
     def value(self, sheet: str, addr: str) -> Any:
         key = (sheet, addr)
@@ -506,6 +508,9 @@ class Evaluator:
             v = CIRC
         finally:
             self.stack.discard(key)
+        if isinstance(v, XLError) and v == NAME and cell.get("v") is not None:
+            self.stale.add(key)
+            v = cell["v"]
         self.cache[key] = v
         return v
 
