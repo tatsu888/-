@@ -111,6 +111,10 @@ export default function App() {
       }
     }
     if (m.type === 'provider') setProvider(m.provider);
+    if (m.type === 'trinity') {
+      const msg = `TRIN AUTO: ${m.changes.slice(0, 4).map((c: any) => `${c.symbol} ${c.from ?? ''}→${c.to}`).join(' · ')}${m.changes.length > 4 ? ` (+${m.changes.length - 4})` : ''}`;
+      toast(msg);
+    }
   });
 
   const setSecurity = useCallback((s: string) => setSecurityRaw(s), []);

@@ -97,6 +97,18 @@
 | GET | /transcripts/{symbol}/brief_pack?id | 出典番号つき SOURCE と規則を含む AI 用プロンプト |
 | POST | /transcripts/{symbol}/validate_brief `{brief, id?}` | AI の回答の出典・数字を検証 |
 
+## AUTO 三位一体（/api/trinity）
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /latest | 最新のスナップショット、実行状態（最終・次回・エラー）、設定 |
+| POST | /run?source | 今すぐ実行（実行中なら 409） |
+| GET/PUT | /config `{enabled, interval_min, extra, exclude, max_symbols, sources}` | 対象ユニバースと間隔 |
+| GET | /history/{symbol}?days | 日次の判定の推移 |
+| GET | /changes?limit | 判定・象限の変化のログ |
+
+WebSocket：判定が変わると `{"type":"trinity","changes":[...],"at":...}` を配信。
+
 ## 投資の三位一体（/api/framework）— [FRAMEWORK.md](FRAMEWORK.md)
 
 | Method | Path | 説明 |

@@ -11,10 +11,10 @@ import { fmtBig, fmtNum, fmtPct } from '../lib/format';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { LineChart } from '../components/LineChart';
 
-export const TRIN_TABS = ['MAP', 'SCORE', 'KELLY', 'RULE', 'PAIR', 'SHRT', 'CHIP', 'GATE', 'GLQ'] as const;
+export const TRIN_TABS = ['AUTO', 'MAP', 'SCORE', 'KELLY', 'RULE', 'PAIR', 'SHRT', 'CHIP', 'GATE', 'GLQ'] as const;
 type Tab = (typeof TRIN_TABS)[number];
 const TAB_LABEL: Record<Tab, string> = {
-  MAP: '三位一体', SCORE: '評点表', KELLY: 'ケリー', RULE: '六層規律', PAIR: 'ペア', SHRT: '空売り8', CHIP: '天井/底', GATE: '関門', GLQ: '成長×流動性',
+  AUTO: '自動判定', MAP: '三位一体', SCORE: '評点表', KELLY: 'ケリー', RULE: '六層規律', PAIR: 'ペア', SHRT: '空売り8', CHIP: '天井/底', GATE: '関門', GLQ: '成長×流動性',
 };
 const ts = (d: string) => Math.floor(Date.parse(d) / 1000);
 const stCls = (s: string) => (s === 'PASS' ? 'up' : s === 'FAIL' ? 'down' : s === 'WARN' ? 'yellow' : 'muted');
@@ -25,7 +25,7 @@ function useMeta() {
 }
 
 export function TRIN({ symbol, tab: initial, onPick }: { symbol: string; tab?: string; onPick?: (s: string) => void }) {
-  const [tab, setTab] = useState<Tab>((TRIN_TABS as readonly string[]).includes(initial || '') ? (initial as Tab) : 'MAP');
+  const [tab, setTab] = useState<Tab>((TRIN_TABS as readonly string[]).includes(initial || '') ? (initial as Tab) : 'AUTO');
   useEffect(() => {
     if (initial && (TRIN_TABS as readonly string[]).includes(initial)) setTab(initial as Tab);
   }, [initial]);
@@ -38,6 +38,7 @@ export function TRIN({ symbol, tab: initial, onPick }: { symbol: string; tab?: s
           </button>
         ))}
       </div>
+      {tab === 'AUTO' && <AutoTab symbol={symbol} onPick={onPick} go={setTab} />}
       {tab === 'MAP' && <MapTab symbol={symbol} go={setTab} />}
       {tab === 'SCORE' && <ScoreTab symbol={symbol} onPick={onPick} />}
       {tab === 'KELLY' && <KellyTab />}
@@ -47,6 +48,121 @@ export function TRIN({ symbol, tab: initial, onPick }: { symbol: string; tab?: s
       {tab === 'CHIP' && <ChipTab symbol={symbol} />}
       {tab === 'GATE' && <GateTab />}
       {tab === 'GLQ' && <GLQ />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- AUTO (rule-based, scheduled)
+const vSym = (v: number) => (v > 0 ? <span className="up">▲</span> : v < 0 ? <span className="down">▼</span> : <span className="muted">·</span>);
+
+function AutoTab({ symbol, onPick, go }: { symbol: string; onPick?: (s: string) => void; go: (t: Tab) => void }) {
+  const r = useAsync(() => api.get<any>('/trinity/latest'), []);
+  const ch = useAsync(() => api.get<any>('/trinity/changes', { limit: 30 }), []);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [filter, setFilter] = useState('ACTIONABLE');
+  const [cfgOpen, setCfgOpen] = useState(false);
+  const [extra, setExtra] = useState('');
+  const [interval, setIv] = useState(60);
+  const [sel, setSel] = useState<string | null>(null);
+  useEffect(() => {
+    const c = r.data?.config;
+    if (c) { setExtra((c.extra || []).join(', ')); setIv(c.interval_min || 60); }
+  }, [r.data]);
+  useEffect(() => {
+    const t = setInterval(r.reload, 60_000); // pick up scheduled runs
+    const onUpd = () => { r.reload(); ch.reload(); }; // manual refresh from the top bar
+    window.addEventListener('trinity-updated', onUpd);
+    return () => { clearInterval(t); window.removeEventListener('trinity-updated', onUpd); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const runNow = async () => {
+    setBusy(true); setErr('');
+    try { await api.post('/trinity/run', {}); r.reload(); ch.reload(); } catch (e: any) { setErr(e.message); }
+    setBusy(false);
+  };
+  const saveCfg = async () => {
+    await api.put('/trinity/config', { extra: extra.split(/[,\s]+/).filter(Boolean).map((x) => x.toUpperCase()), interval_min: interval, enabled: true });
+    setCfgOpen(false); r.reload();
+  };
+  const snap = r.data?.snapshot;
+  const st = r.data?.status;
+  const rows: any[] = (snap?.rows || []).filter((x: any) => filter === 'ALL' || (filter === 'ACTIONABLE' ? x.size_pct > 0 : x.direction === filter));
+  const detail = snap?.rows?.find((x: any) => x.symbol === (sel || symbol));
+  return (
+    <div>
+      <div className="toolbar">
+        <button className="tb on" onClick={runNow} disabled={busy || st?.running}>{busy || st?.running ? '⟳ 更新中…' : '⟳ 今すぐ更新'}</button>
+        <span className="muted">最終 {snap?.generated_at?.replace('T', ' ') || '—'} · 次回 {st?.next_run?.replace('T', ' ') || '—'} · {r.data?.config?.interval_min}分ごと · {snap?.universe ?? 0}銘柄 · {snap?.source} {snap?.seconds != null ? `· ${snap.seconds}s` : ''}</span>
+        {['ACTIONABLE', 'LONG', 'SHORT', 'NEUTRAL', 'ALL'].map((f) => <button key={f} className={`tb ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>{f}</button>)}
+        <button className="tb" onClick={() => setCfgOpen(!cfgOpen)}>UNIVERSE</button>
+      </div>
+      {cfgOpen && (
+        <div className="toolbar">
+          <span className="lbl">対象 = ウォッチリスト + SCORE保存銘柄 + PORT +</span>
+          <input className="inp" style={{ width: 320 }} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="TSE:6501, TSE:6503 …" />
+          <span className="lbl">間隔(分)</span><input className="inp num" type="number" min={5} value={interval} onChange={(e) => setIv(+e.target.value)} />
+          <button className="tb on" onClick={saveCfg}>SAVE</button>
+        </div>
+      )}
+      {(err || st?.last_error) && <div className="err">{err || st?.last_error}</div>}
+      {r.loading && !snap && <Loading />}
+      {!snap && !r.loading && <div className="note">まだ実行されていません。「⟳ 今すぐ更新」（上部バーの「⟳ 三位一体を更新」でも可）を押すか、起動後の自動実行（約20秒後）を待ってください。</div>}
+      {snap && (
+        <>
+          <div className="kv" style={{ gridTemplateColumns: 'repeat(4, max-content 1fr)' }}>
+            <span>MACRO</span><span className="yellow">{snap.quadrant?.name || '—'} <span className="muted">→ {snap.next_quadrant?.name || ''} ({snap.rotation || ''})</span></span>
+            <span>BOOK (rule)</span><span>L {snap.book.longs} / S {snap.book.shorts} · G {fmtPct(snap.book.gross_pct, 1, false)} · <span className={snap.book.net_ok ? 'up' : 'down'}>N {fmtPct(snap.book.net_pct, 1)}</span></span>
+          </div>
+          <div className="trin-split">
+            <div style={{ flex: 3, minWidth: 520 }}>
+              <table className="t">
+                <thead><tr><th className="l">SYMBOL</th><th>F</th><th>src</th><th>M</th><th>需給</th><th>VERDICT</th><th>確信</th><th>SIZE</th><th>①②③④</th><th className="l">FLAGS</th></tr></thead>
+                <tbody>
+                  {rows.map((x: any) => (
+                    <tr key={x.symbol} className={(sel || symbol) === x.symbol ? 'sel' : ''} style={{ cursor: 'pointer' }} onClick={() => { setSel(x.symbol); onPick?.(x.symbol); }}>
+                      <td className="l amber">{x.symbol}<span className="muted"> {(x.name || '').slice(0, 14)}</span></td>
+                      <td className={dirCls(x.f.direction)}>{fmtNum(x.f.score, 2)}</td><td className="muted">{x.f.source}</td>
+                      <td>{vSym(x.m.view)}</td><td>{vSym(x.l.view)}</td>
+                      <td className={dirCls(x.direction)}>{x.direction}</td>
+                      <td>{'●'.repeat(x.conviction)}<span className="muted">{'○'.repeat(3 - x.conviction)}</span></td>
+                      <td className="yellow">{x.size_pct ? fmtPct(x.size_pct, 2, false) : ''}</td>
+                      <td>{Object.values(x.gates).map((g: any, i: number) => <span key={i} className={stCls(g)}>{g === 'PASS' ? '●' : g === 'FAIL' ? '✕' : '·'}</span>)}</td>
+                      <td className="l muted" style={{ fontSize: 10, whiteSpace: 'nowrap', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }} title={[...x.flags, ...x.short_models].join('\n')}>{[...x.flags, ...x.short_models.map((m: string) => '空売り' + m)].slice(0, 2).join(' / ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ flex: 2, minWidth: 280 }}>
+              {detail && (
+                <div className="box" style={{ margin: 6 }}>
+                  <h4>{detail.symbol} — 判定の根拠（ルール）</h4>
+                  <div className="pad">
+                    <div><span className="amber">F</span> {detail.f.source === 'SCORE' ? `評点表 ${fmtNum(detail.f.score, 2)}` : detail.f.score != null ? `ルール採点 ${fmtNum(detail.f.score, 2)}（同ユニバース内 ${fmtPct((detail.f.detail?.percentile ?? 0) * 100, 0, false)} 位置・${detail.f.detail?.peers}銘柄比較）` : `N/A — ${detail.f.detail?.reason || ''}`} → <span className={dirCls(detail.f.direction)}>{detail.f.direction}</span></div>
+                    {detail.f.detail?.components && <div className="muted" style={{ fontSize: 11 }}>{Object.entries(detail.f.detail.components).map(([k, v]: any) => `${k} ${fmtNum(v * 100, 0)}`).join(' · ')}</div>}
+                    <div><span className="amber">M</span> {detail.m.reason} {vSym(detail.m.view)} <span className="muted">次の象限 {vSym(detail.m.next_view ?? 0)}</span></div>
+                    <div><span className="amber">需給</span> {detail.l.zone} {vSym(detail.l.view)} <span className="muted">· 3M {fmtPct(detail.l.mom_3m_pct, 1)} · 高値比 −{fmtNum(detail.l.drawdown_pct, 1)}% · vol {fmtNum(detail.l.vol_pct, 0)}% · 売買pctl {fmtNum(detail.l.activity_pctl, 0)}</span></div>
+                    {detail.l.signals.map((s: string) => <div key={s} className="muted" style={{ fontSize: 11 }}>• {s}</div>)}
+                    <div style={{ marginTop: 4 }}>→ <span className={dirCls(detail.direction)}>{detail.direction}</span> 確信 {detail.conviction}/3 · サイズ {fmtPct(detail.size_pct, 2, false)}（一致 {detail.agree}・逆行 {detail.oppose}）</div>
+                    {detail.flags.map((f: string) => <div key={f} className="yellow">• {f}</div>)}
+                    {detail.short_models.length > 0 && <div className="down">空売りモデル該当: {detail.short_models.join(' / ')}</div>}
+                    <div style={{ marginTop: 4 }}><button className="tb" onClick={() => go('SCORE')}>SCORE で上書き採点</button> <button className="tb" onClick={() => go('PAIR')}>PAIR</button> <button className="tb" onClick={() => go('CHIP')}>CHIP</button></div>
+                  </div>
+                </div>
+              )}
+              <div className="box" style={{ margin: 6 }}>
+                <h4>CHANGES（自動実行ごとの変化）</h4>
+                <table className="t"><tbody>{(ch.data?.changes || []).map((c: any, i: number) => (
+                  <tr key={i}><td className="muted">{c.at?.slice(5, 16).replace('T', ' ')}</td><td className="l amber">{c.symbol}</td><td className="l">{c.from ?? ''} → <span className="yellow">{c.to}</span></td></tr>
+                ))}</tbody></table>
+              </div>
+              {Object.keys(snap.errors || {}).length > 0 && <div className="note">data: {Object.entries(snap.errors).slice(0, 6).map(([k, v]) => `${k}: ${String(v).slice(0, 60)}`).join(' | ')}</div>}
+            </div>
+          </div>
+          <div className="note">ルールベース・自動更新（AIなし）。F＝評点表があればそれ、なければスキャナーのファンダメンタルズを同ユニバース内で順位付け（上下10%だけが3.4超／2.7未満）。M＝成長×流動性の象限でのセクター優位。需給＝天井/底シグナル。F が無ければポジションなし。確信度＝1＋一致数−逆行数。サイズ＝上限（L3% / S2%）×確信/3×min(1, 30%/ボラ)。詳細は docs/FRAMEWORK.md §8。</div>
+        </>
+      )}
     </div>
   );
 }

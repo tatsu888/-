@@ -3,6 +3,8 @@
 | 変数 | 既定値 | 説明 |
 |---|---|---|
 | `TERMINAL_PROVIDER` | `tradingview` | 起動時のデータソース（tradingview, yahoo, sim）。未設定なら、最後に UI で選んだもの（store.settings.provider）を復元する |
+| `TERMINAL_TRINITY_AUTO` | `1` | `0` で AUTO 三位一体の自動実行を止める（間隔は TRIN の AUTO タブで設定） |
+| `TERMINAL_TRINITY_FIRST_DELAY` | `20` | 起動から初回の自動実行までの秒数 |
 | `X_BEARER_TOKEN` | （空） | X API v2 の Bearer Token（`TRND` の X 分析。counts/search は有料プラン）。**秘密情報。コミットしないこと** |
 | `TV_AUTH_TOKEN` | `unauthorized_user_token` | TradingView の auth token（ログインしていればリアルタイム）。**秘密情報。コミットしないこと** |
 | `YAHOO_POLL_SEC` | `5` | Yahoo のポーリング間隔（秒） |

@@ -54,6 +54,9 @@ class Settings:
     provider: str = field(default_factory=lambda: _env("TERMINAL_PROVIDER", "tradingview").lower())
     # TradingView auth token. "unauthorized_user_token" = 未ログイン（多くの取引所で遅延データ）
     tv_auth_token: str = field(default_factory=lambda: _env("TV_AUTH_TOKEN", "unauthorized_user_token"))
+    # AUTO Trinity background run (interval is set in the TRIN AUTO tab / store.trinity_config)
+    trinity_auto: bool = field(default_factory=lambda: _env("TERMINAL_TRINITY_AUTO", "1") != "0")
+    trinity_first_delay_sec: float = field(default_factory=lambda: _env_float("TERMINAL_TRINITY_FIRST_DELAY", 20.0))
     # Yahoo provider quote polling interval (seconds)
     yahoo_poll_sec: float = field(default_factory=lambda: _env_float("YAHOO_POLL_SEC", 5.0))
     # Sim provider tick interval (seconds)

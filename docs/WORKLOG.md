@@ -98,3 +98,16 @@
 ### 未確認
 - 実データでの成長×流動性の記号（`COMEX:HG1!`、`TVC:DXY`、`TVC:US02Y`、`AMEX:HYG` など）、スキャナーの列（`float_shares_outstanding`、`total_revenue_yoy_growth_ttm`、`free_cash_flow`、`enterprise_value_ebitda_ttm`）
 - Google Trends・X・StockTwits の実通信
+
+## 2026-11-02 — Claude Code（R26：AUTO 三位一体）
+
+### やったこと
+- `backend/app/trinity_auto.py`（純関数）：ルール採点（同ユニバース内の順位 → Notion の分布で 1〜5 点）、成長×流動性の象限とセクターの優劣、天井/底と混雑、確信度（1＋一致−逆行）、ルールによるサイズ、裁定ルールのフラグ、自動関門、空売りモデルの自動判定、スナップショットの差分
+- `backend/app/api_trinity.py`：ユニバースの組み立て、データ取得、`data/trinity/` への保存（latest・日次履歴・変化ログ）、起動時と一定間隔の自動実行（`main.py` の lifespan）、変化を websocket で通知、`/api/trinity/*`
+- フロントエンド：TRIN の既定タブを AUTO に（一覧、根拠、変化ログ、UNIVERSE と間隔の設定、RUN NOW）。変化はトーストで通知
+- テスト：`test_trinity_auto.py` 7 件（分布の写像、ルール採点、象限、確信度と裁定、混雑の検出、差分、API）。テスト中は自動実行を止める（`TERMINAL_TRINITY_AUTO=0`）
+- SIM で自動実行（起動数秒後）と画面を確認。この環境ではスキャナーがプロキシで拒否されるため、ルール採点の F は N/A（評点表を保存した銘柄のみ判定）
+
+### 未確認
+- 実データでのスキャナー列（`return_on_equity`、`gross_margin`、`debt_to_equity` など）と、セクター名の対応（`SECTOR_BUCKET`）
+- （R27）上部バーに手動更新ボタン「⟳ 三位一体を更新」を追加。押すと `POST /api/trinity/run` → トースト → 開いている AUTO タブを再読込（`trinity-updated` イベント）。ブラウザで動作確認

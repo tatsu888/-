@@ -33,6 +33,28 @@ export interface WorkspaceApi {
   remove: (name: string) => void;
 }
 
+/** Manual refresh of the rule-based AUTO Trinity run (also runs on a schedule on the server). */
+function TrinityRefresh() {
+  const { toast } = useTerminal();
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post<any>('/trinity/run', {});
+      toast(`三位一体を更新: ${r.universe}銘柄 · L${r.book.longs}/S${r.book.shorts} · 変化 ${r.changes.length}件 (${r.seconds}s)`);
+      window.dispatchEvent(new CustomEvent('trinity-updated'));
+    } catch (e: any) {
+      toast(`三位一体の更新に失敗: ${e.message}`);
+    }
+    setBusy(false);
+  };
+  return (
+    <button className={`fkey ${busy ? 'y' : ''}`} onClick={go} disabled={busy} title="三位一体（AUTO）を今すぐ更新（通常は自動で定期実行）">
+      {busy ? '⟳ 更新中…' : '⟳ 三位一体を更新'}
+    </button>
+  );
+}
+
 export function FKeys({ layout, setLayout, ws }: { layout: number; setLayout: (n: number) => void; ws: WorkspaceApi }) {
   const { run } = useTerminal();
   return (
@@ -74,6 +96,8 @@ export function FKeys({ layout, setLayout, ws }: { layout: number; setLayout: (n
         <option value="__save">+ SAVE CURRENT…</option>
         {ws.names.map((n) => <option key={'d' + n} value={`del:${n}`}>✕ delete {n}</option>)}
       </select>
+      <span className="fkey sep">│</span>
+      <TrinityRefresh />
     </div>
   );
 }

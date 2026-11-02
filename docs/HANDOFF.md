@@ -38,11 +38,12 @@
 | 業績予想ハーネス MODEL（A〜G の 7 層、明細行の作り方 18 種、3 表、DCF／倍率法／DDM／RIM、シナリオ、感応度、モンテカルロ、検証チェック、ハッシュ） | ✅ テスト済み | サンプルの JSON は架空の数値 |
 | チャートの追加指標（一目・ストキャス・ATR・PNG）、指標アラート、ペアトレードのバックテスト、約定記録、TEAR、SCRN | ✅ | |
 | CYCL（フーリエ）、MACRO（景気局面）、PROP（認識伝播マップ）、MRGN（信用残の取り込み） | ✅ ロジックはテスト済み、SIM で画面確認済み | マクロ系の記号の一部は未検証。MRGN は JPX のファイルを手で取り込む |
+| **AUTO 三位一体**（ルールベース・自動更新、TRIN の既定タブ） | ✅ テスト済み、SIM で自動実行を確認 | スキャナーが使えないと F のルール採点は N/A |
 | **投資の三位一体**：TRIN / SCORE / KELLY / RULE / PAIR / SHRT / CHIP / GATE / GLQ | ✅ テスト済み（Notion の数字を再現）、SIM で画面確認済み | 評点表の Weight はプレースホルダー、成長×流動性は代理指標（[FRAMEWORK.md](FRAMEWORK.md) §7） |
 | TXT（書き起こし：Lazy Prices 差分、トーン、Q&A 回避度、出典必須の AI ブリーフ検証） | ✅ | 外部通信なし |
 | TRND（Google Trends、X、StockTwits） | ⚠️ 実装済み・実通信は未検証 | X は `X_BEARER_TOKEN`（有料）が必要 |
 | 自己診断（`python -m app.diagnose`、SRC の RUN DIAGNOSTICS） | ✅ | 実ネットワーク環境で最初に実行する |
-| テスト | ✅ backend 116 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
+| テスト | ✅ backend 123 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
 
 ## 3. 起動方法
 
@@ -80,6 +81,8 @@ backend/app/
   api_macro.py       /api/macro/*（認識伝播マップ、ダッシュボード、成長×流動性）
   api_research.py    /api/margin/*, /api/trends/*, /api/social/*, /api/transcripts/*
   api_framework.py   /api/framework/*（投資の三位一体）
+  api_trinity.py     /api/trinity/*（AUTO 三位一体の実行・スケジューラ・保存）
+  trinity_auto.py    AUTO 三位一体のルール（純関数）
   framework.py       評点表・3.5句・ケリー・六層規律・ペア・空売り8モデル・天井/底・関門（純関数）
   macro.py           認識伝播マップ、景気局面、成長×流動性
   margin.py          JPX 信用残の取り込みと分析

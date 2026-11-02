@@ -5,6 +5,7 @@ from pathlib import Path
 
 # Must run before any `app.*` import (settings are read at import time).
 os.environ["TERMINAL_NO_DOTENV"] = "1"
+os.environ["TERMINAL_TRINITY_AUTO"] = "0"
 os.environ["TERMINAL_PROVIDER"] = "sim"
 os.environ["TERMINAL_DATA_DIR"] = tempfile.mkdtemp(prefix="terminal-test-")
 os.environ["SIM_TICK_SEC"] = "0.2"
