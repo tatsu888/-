@@ -80,3 +80,56 @@ async def margin_stock(symbol: str, source: str | None = None):
             bars = None
     res = M.stock_analysis(series, bars)
     return {"symbol": symbol, "code": code, **res}
+
+
+# ---- attention: Google Trends / X / StockTwits (TRND) ----------------------
+from . import attention as A  # noqa: E402
+from .providers.base import ProviderError  # noqa: E402
+
+
+@router.get("/trends/google")
+async def google_trends(keywords: str, geo: str = "", timeframe: str = "today 12-m", symbol: str | None = None,
+                        source: str | None = None):
+    kws = [k.strip() for k in keywords.split(",") if k.strip()][:5]
+    if not kws:
+        raise HTTPException(400, "keywords required")
+    gt = A.GoogleTrends()
+    try:
+        res = await gt.interest(kws, geo, timeframe)
+    except ProviderError as e:
+        raise HTTPException(502, str(e)) from e
+    finally:
+        await gt.close()
+    if symbol:
+        try:
+            bars = await S.history(symbol, "1D", 1500, source)
+            closes = {__import__("datetime").datetime.fromtimestamp(b["time"], tz=__import__("datetime").timezone.utc)
+                      .strftime("%Y-%m-%d"): b["close"] for b in bars}
+            res["vs_price"] = {k: A.attention_vs_price([p for p in s if not p["partial"]], closes) for k, s in res["series"].items()}
+        except HTTPException as e:
+            res["vs_price_error"] = str(e.detail)
+    return res
+
+
+@router.get("/social/x")
+async def social_x(query: str, lang: str | None = None):
+    x = A.XClient()
+    try:
+        return await x.analyze(query, lang)
+    except ProviderError as e:
+        raise HTTPException(502, str(e)) from e
+    finally:
+        await x.close()
+
+
+@router.get("/social/stocktwits")
+async def social_stocktwits(symbol: str | None = None):
+    st = A.StockTwits()
+    try:
+        if symbol:
+            return await st.symbol(symbol.split(":")[-1])
+        return {"trending": await st.trending()}
+    except ProviderError as e:
+        raise HTTPException(502, str(e)) from e
+    finally:
+        await st.close()
