@@ -44,8 +44,11 @@ def core(spec: dict[str, Any]) -> dict[str, Any]:
     return {"projection": proj, "valuation": val}
 
 
-def run(spec: dict[str, Any], *, uncertainty: bool = True) -> dict[str, Any]:
-    validate(spec)
+def run(spec: dict[str, Any], *, uncertainty: bool = True, excel_refs: list[dict[str, Any]] | None = None
+        ) -> dict[str, Any]:
+    """``spec`` must already have excel references resolved (see harness/excel_refs.py);
+    ``excel_refs`` is the provenance of those references (recorded in meta)."""
+    warnings = validate(spec)
     base = core(spec)
     proj, val = base["projection"], base["valuation"]
     out: dict[str, Any] = {
@@ -65,6 +68,8 @@ def run(spec: dict[str, Any], *, uncertainty: bool = True) -> dict[str, Any]:
             out["sensitivity"] = U.sensitivity(spec, s["x"], s["y"], s["output"], core)
         if spec.get("monte_carlo"):
             out["monte_carlo"] = U.monte_carlo(spec, spec["monte_carlo"], core)
+    if warnings:
+        out["checks"].append({"id": "spec_warnings", "status": "WARN", "message": "; ".join(warnings)})
     out["check_summary"] = C.summary(out["checks"])
     out = _round(out)
     out["meta"] = {
@@ -72,12 +77,18 @@ def run(spec: dict[str, Any], *, uncertainty: bool = True) -> dict[str, Any]:
         "input_hash": hashlib.sha256(_canon(spec).encode()).hexdigest(),
         "output_hash": hashlib.sha256(_canon(out).encode()).hexdigest(),
         "deterministic": True,
+        "excel_refs": excel_refs or [],
     }
     return out
 
 
-def validate(spec: dict[str, Any]) -> None:
-    errs = []
+def validate(spec: dict[str, Any]) -> list[str]:
+    """Raise ValueError on structural errors; return non-fatal warnings (unknown params, …)."""
+    from .excel_refs import is_ref
+    from .lines import check_params
+
+    errs: list[str] = []
+    warns: list[str] = []
     if not isinstance(spec.get("forecast_years"), list) or not spec["forecast_years"]:
         errs.append("forecast_years: non-empty list required")
     if not isinstance(spec.get("lines"), dict) or "revenue" not in spec.get("lines", {}):
@@ -88,5 +99,24 @@ def validate(spec: dict[str, Any]) -> None:
         for k, v in hist.items():
             if k != "years" and isinstance(v, list) and len(v) != len(years):
                 errs.append(f"history.{k}: {len(v)} values but {len(years)} years")
+    for name, ls in (spec.get("lines") or {}).items():
+        if not isinstance(ls, dict):
+            errs.append(f"line '{name}': must be an object with method/params")
+            continue
+        e, w = check_params(name, ls)
+        errs += e
+        warns += w
+
+    def find_refs(node: Any, path: str) -> None:
+        if is_ref(node):
+            errs.append(f"{path}: unresolved excel reference (run through /api/harness/run to resolve)")
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                find_refs(v, f"{path}.{k}" if path else k)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                find_refs(v, f"{path}[{i}]")
+    find_refs(spec, "")
     if errs:
         raise ValueError("; ".join(errs))
+    return warns

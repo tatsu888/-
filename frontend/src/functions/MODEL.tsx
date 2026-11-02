@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { fmtNum, fmtPct, heat } from '../lib/format';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { useTerminal } from '../ctx';
+import { AiAssist, AssumptionEditor, Versions } from './ModelTools';
 
 const KEY_DERIVED = ['gross_profit', 'operating_profit', 'ebitda', 'pretax_profit', 'net_income', 'eps', 'fcff', 'dividends'];
 const RATIOS = ['revenue_growth', 'gross_margin', 'operating_margin', 'net_margin'];
@@ -19,16 +20,29 @@ export function MODEL() {
   const [res, setRes] = useState<any>(null);
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'result' | 'spec' | 'catalog'>('result');
+  const [tab, setTab] = useState<'result' | 'assumptions' | 'spec' | 'versions' | 'ai' | 'catalog'>('result');
+  const templates = useAsync(() => api.get<{ name: string; description: string }[]>('/harness/templates'), []);
+  const specObj = (() => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  })();
+  const setSpec = (s: any, rerun = true) => {
+    setText(JSON.stringify(s, null, 2));
+    if (rerun) run(s);
+  };
 
-  async function loadModel(n: string, example: boolean) {
-    const spec = await api.get<any>(`/harness/models/${n}`, { example });
+  async function loadModel(n: string, kind: 'ex' | 'sv' | 'tp') {
+    const spec = kind === 'tp' ? await api.get<any>(`/harness/templates/${n}`) : await api.get<any>(`/harness/models/${n}`, { example: kind === 'ex' });
     setText(JSON.stringify(spec, null, 2));
-    setName(example ? '' : n);
+    setName(kind === 'sv' ? n : '');
     run(spec);
+    if (kind === 'tp') setTab('assumptions');
   }
   useEffect(() => {
-    if (!text && models.data?.examples?.length) loadModel(models.data.examples[0], true);
+    if (!text && models.data?.examples?.length) loadModel(models.data.examples[0], 'ex');
   }, [models.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function parse(): any | null {
@@ -56,10 +70,13 @@ export function MODEL() {
     const spec = parse();
     const n = name || prompt('model name (e.g. TSE_7203_base)') || '';
     if (!spec || !n) return;
-    await api.put(`/harness/models/${encodeURIComponent(n)}`, spec);
+    const note = prompt('version note (改訂理由, optional)', '') ?? '';
+    const r = await fetch(`/api/harness/models/${encodeURIComponent(n)}?note=${encodeURIComponent(note)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec),
+    }).then((x) => x.json());
     setName(n);
     models.reload();
-    toast(`saved ${n}`);
+    toast(`saved ${n} (v${r.version})`);
   }
 
   const p = res?.projection;
@@ -68,9 +85,10 @@ export function MODEL() {
       <div className="toolbar">
         <select className="inp" value="" onChange={(e) => {
           const [kind, n] = e.target.value.split('|');
-          if (n) loadModel(n, kind === 'ex');
+          if (n) loadModel(n, kind as 'ex' | 'sv' | 'tp');
         }}>
           <option value="">LOAD MODEL…</option>
+          {(templates.data ?? []).map((t) => <option key={'tp' + t.name} value={`tp|${t.name}`}>template: {t.name} — {t.description}</option>)}
           {(models.data?.examples ?? []).map((m) => <option key={'ex' + m} value={`ex|${m}`}>example: {m}</option>)}
           {(models.data?.saved ?? []).map((m) => <option key={'sv' + m} value={`sv|${m}`}>{m}</option>)}
         </select>
@@ -78,7 +96,7 @@ export function MODEL() {
         <button className="tb" onClick={save}>SAVE{name ? ` (${name})` : ''}</button>
         <button className="tb" onClick={() => { const s = parse(); if (s) api.download('/harness/export.xlsx', s, `${(s.company?.symbol ?? 'model').replace(':', '_')}_harness.xlsx`).catch((e) => toast(e.message)); }}>EXPORT XLSX</button>
         <span className="lbl">│</span>
-        {(['result', 'spec', 'catalog'] as const).map((t) => <button key={t} className={`tb ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>{t.toUpperCase()}</button>)}
+        {(['result', 'assumptions', 'spec', 'versions', 'ai', 'catalog'] as const).map((t) => <button key={t} className={`tb ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>{t.toUpperCase()}</button>)}
         {res && (
           <span>
             <span className="badge pass">{res.check_summary.PASS} PASS</span> <span className="badge warn">{res.check_summary.WARN} WARN</span> <span className="badge fail">{res.check_summary.FAIL} FAIL</span>
@@ -91,11 +109,19 @@ export function MODEL() {
           <textarea className="inp" spellCheck={false} style={{ height: '100%', minHeight: 400, resize: 'none' }} value={text} onChange={(e) => setText(e.target.value)} />
         )}
         {tab === 'catalog' && (catalog.data ? <Catalog c={catalog.data} /> : <Loading />)}
+        {tab === 'assumptions' && (specObj && catalog.data ? <AssumptionEditor spec={specObj} mp={catalog.data.method_params} onChange={(s) => setSpec(s)} /> : <div className="err">spec JSON is invalid — fix it in SPEC</div>)}
+        {tab === 'versions' && <Versions name={name} onLoad={(s) => setSpec(s)} />}
+        {tab === 'ai' && (specObj ? <AiAssist spec={specObj} onApply={(s) => setSpec(s)} /> : <div className="err">spec JSON is invalid</div>)}
         {tab === 'result' && res && p && (
           <div>
             <div className="note">
               <span className="amber">{res.company?.name ?? ''}</span> {res.company?.symbol} · unit {res.company?.unit ?? ''} {res.company?.currency ?? ''} · engine {res.meta.engine_version}
               <br />input {res.meta.input_hash.slice(0, 16)}… · output {res.meta.output_hash.slice(0, 16)}… (same spec ⇒ same hash)
+              {res.meta.excel_refs?.length > 0 && (
+                <>
+                  <br />excel refs: {res.meta.excel_refs.map((r: any) => `${r.path} ← ${r.file} ${r.range}`).join(' · ')}
+                </>
+              )}
             </div>
             <table className="t">
               <thead>

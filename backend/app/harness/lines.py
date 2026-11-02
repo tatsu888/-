@@ -233,6 +233,65 @@ METHODS: dict[str, Method] = {
 }
 
 
+# Parameter contract per method (drives validation, the JSON schema and the MODEL form editor).
+# "path" = driver path: {"values": [...]} | {"start": x, "growth": g|[...]} | {"line": "<other line>"}
+# "vec"  = number or list with one value per forecast year
+METHOD_PARAMS: dict[str, dict[str, Any]] = {
+    "values": {"required": {"values": "vec"}, "optional": {}, "judgmental": True,
+               "desc": "explicit analyst / company-guidance values"},
+    "growth": {"required": {"rates": "vec"}, "optional": {"base": "number"}, "judgmental": True,
+               "desc": "x[t] = x[t-1] × (1 + g[t])"},
+    "cagr_trend": {"required": {}, "optional": {"years": "int"}, "judgmental": False,
+                   "desc": "continue the historical CAGR"},
+    "trend": {"required": {}, "optional": {"kind": "enum:loglinear|linear"}, "judgmental": False,
+              "desc": "time-trend regression on history"},
+    "holt": {"required": {}, "optional": {"alpha": "number", "beta": "number"}, "judgmental": False,
+             "desc": "Holt linear exponential smoothing"},
+    "ar1": {"required": {}, "optional": {}, "judgmental": False, "desc": "AR(1) with mean reversion"},
+    "pct_of": {"required": {"of": "line", "pct": "vec"}, "optional": {}, "judgmental": True,
+               "desc": "x = other line × pct"},
+    "hist_avg_pct_of": {"required": {"of": "line"}, "optional": {"years": "int"}, "judgmental": False,
+                        "desc": "x = other line × average historical ratio"},
+    "fixed_variable": {"required": {"of": "line"}, "optional": {"fixed": "vec", "variable_ratio": "vec",
+                                                                "fixed_growth": "vec"},
+                       "judgmental": False, "desc": "fixed + variable × base (OLS-estimated if not given)"},
+    "pct_of_prior": {"required": {"of": "line", "pct": "vec"}, "optional": {}, "judgmental": True,
+                     "desc": "x = other line[t-1] × pct"},
+    "price_volume": {"required": {"volume": "path", "price": "path"}, "optional": {"unit_factor": "number"},
+                     "judgmental": True, "desc": "volume × price"},
+    "sum": {"required": {"items": "lines"}, "optional": {"signs": "list"}, "judgmental": False,
+            "desc": "sum of other lines (segments)"},
+    "market_share": {"required": {"market_size": "path", "share": "path"}, "optional": {}, "judgmental": True,
+                     "desc": "market size × share"},
+    "customers_arpu": {"required": {"customers": "path", "arpu": "path"}, "optional": {"periods_per_year": "number"},
+                       "judgmental": True, "desc": "customers × ARPU"},
+    "backlog": {"required": {"orders": "path", "burn_rate": "vec", "in_period_rate": "vec", "backlog_start": "number"},
+                "optional": {}, "judgmental": True, "desc": "order backlog conversion"},
+    "capacity": {"required": {"capacity": "path", "utilization": "path", "price": "path"}, "optional": {},
+                 "judgmental": True, "desc": "capacity × utilization × price"},
+    "stores": {"required": {"same_store_growth": "vec", "new_stores": "vec", "sales_per_new_store": "vec"},
+               "optional": {"first_year_ramp": "number", "base": "number"}, "judgmental": True,
+               "desc": "existing stores × (1+SSS) + new stores"},
+    "driver_regression": {"required": {"drivers_history": "dict", "drivers_future": "dict"},
+                          "optional": {"transform": "enum:level|log|growth"}, "judgmental": True,
+                          "desc": "regress on macro / industry drivers"},
+}
+COMMON_PARAMS = {"source": "string", "note": "string"}
+
+
+def check_params(name: str, spec: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """(errors, warnings) for one line spec — missing required params / unknown params."""
+    method = spec.get("method")
+    if method not in METHOD_PARAMS:
+        return [f"line '{name}': unknown method {method!r}"], []
+    meta = METHOD_PARAMS[method]
+    params = spec.get("params") or {}
+    errors = [f"line '{name}' ({method}): missing param '{k}'" for k in meta["required"] if k not in params]
+    known = set(meta["required"]) | set(meta["optional"]) | set(COMMON_PARAMS)
+    warnings = [f"line '{name}' ({method}): unknown param '{k}' (ignored)" for k in params if k not in known]
+    return errors, warnings
+
+
 def dependencies(spec: dict[str, Any]) -> list[str]:
     deps = []
     for k in ("of", "items"):

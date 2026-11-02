@@ -38,8 +38,12 @@ def run_checks(spec: dict[str, Any], proj: dict[str, Any], val: dict[str, Any] |
     def derived_only(p: dict[str, Any]) -> bool:  # built purely from other projected lines
         return p["method"] == "sum" or (p["method"] == "price_volume" and len(p["depends_on"]) == 2)
 
+    def has_source(p: dict[str, Any]) -> bool:
+        src = str(p.get("source") or "").strip()
+        return bool(src) and not src.upper().startswith("TODO")  # template placeholders count as missing
+
     unsourced = [n for n, p in proj["provenance"].items()
-                 if p["method"] not in statistical and not derived_only(p) and not p.get("source")]
+                 if p["method"] not in statistical and not derived_only(p) and not has_source(p)]
     out.append(_c("assumption_sources", "PASS" if not unsourced else "WARN",
                   "all judgmental assumptions cite a source" if not unsourced else
                   f"assumptions without 'source': {unsourced}", lines=unsourced))

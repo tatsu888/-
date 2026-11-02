@@ -22,6 +22,8 @@ DEFAULTS: dict[str, Any] = {
     "excel_links": {},    # symbol -> [excel file ids] (manual links; auto-links come from filenames)
     "harness_models": {}, # name -> forecast harness spec (JSON)
     "workspaces": {},     # name -> {panels, layout, security} (saved terminal layouts)
+    "harness_versions": {},  # model name -> [{version, saved_at, note, spec_hash, summary, spec}]
+    "trades": [],         # trade blotter [{id, time, symbol, side, qty, price, fee, note}]
 }
 
 ALLOWED_KEYS = tuple(DEFAULTS)

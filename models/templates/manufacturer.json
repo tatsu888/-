@@ -1,0 +1,156 @@
+{
+  "_template": "manufacturer",
+  "_comment": "TEMPLATE — replace every number in history with actuals from filings / your Excel (or {\"excel\": \"<file id>\", \"range\": \"Sheet!B4:F4\"}) and every 'TODO' source with the real source. Numbers below are placeholders only.",
+  "_description": "製造業: 販売数量 × 単価 (+為替感応度は driver_regression で)",
+  "company": {
+    "symbol": "EXCH:TICKER",
+    "name": "TODO company name",
+    "currency": "JPY",
+    "unit": "bn"
+  },
+  "history": {
+    "years": [
+      "FY2020",
+      "FY2021",
+      "FY2022",
+      "FY2023",
+      "FY2024"
+    ],
+    "revenue": [
+      1000,
+      1050,
+      1120,
+      1180,
+      1250
+    ],
+    "cogs": [
+      700,
+      730,
+      780,
+      820,
+      860
+    ],
+    "sga": [
+      180,
+      185,
+      195,
+      200,
+      210
+    ],
+    "da": [
+      40,
+      42,
+      44,
+      46,
+      48
+    ],
+    "capex": [
+      50,
+      52,
+      55,
+      58,
+      60
+    ],
+    "units": [
+      500,
+      510,
+      530,
+      545,
+      560
+    ]
+  },
+  "forecast_years": [
+    "FY2025E",
+    "FY2026E",
+    "FY2027E",
+    "FY2028E",
+    "FY2029E"
+  ],
+  "lines": {
+    "units": {
+      "method": "growth",
+      "params": {
+        "rates": [
+          0.03,
+          0.03,
+          0.02,
+          0.02,
+          0.02
+        ],
+        "source": "TODO 業界の需要見通し"
+      }
+    },
+    "price": {
+      "method": "growth",
+      "params": {
+        "base": 2.232,
+        "rates": 0.01,
+        "source": "TODO 価格改定の方針"
+      }
+    },
+    "revenue": {
+      "method": "price_volume",
+      "params": {
+        "volume": {
+          "line": "units"
+        },
+        "price": {
+          "line": "price"
+        }
+      }
+    },
+    "cogs": {
+      "method": "fixed_variable",
+      "params": {
+        "of": "revenue",
+        "fixed_growth": 0.01
+      }
+    },
+    "sga": {
+      "method": "hist_avg_pct_of",
+      "params": {
+        "of": "revenue",
+        "years": 3
+      }
+    },
+    "capex": {
+      "method": "pct_of",
+      "params": {
+        "of": "revenue",
+        "pct": 0.048,
+        "source": "TODO 中期経営計画の設備投資計画"
+      }
+    },
+    "da": {
+      "method": "pct_of_prior",
+      "params": {
+        "of": "capex",
+        "pct": 0.8,
+        "source": "TODO 減価償却/前年capex の実績比"
+      }
+    }
+  },
+  "assumptions": {
+    "tax_rate": 0.3,
+    "payout_ratio": 0.3,
+    "dso": 60,
+    "dio": 45,
+    "dpo": 40,
+    "shares": 100,
+    "per_share_factor": 1000
+  },
+  "valuation": {
+    "wacc": {
+      "rf": 0.01,
+      "beta": 1.0,
+      "erp": 0.06,
+      "cost_of_debt": 0.015,
+      "tax_rate": 0.3,
+      "debt_weight": 0.2
+    },
+    "terminal_growth": 0.01,
+    "exit_ev_ebitda": 8.0,
+    "net_debt": 0,
+    "current_price": 1000
+  }
+}
