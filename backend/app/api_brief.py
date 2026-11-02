@@ -108,6 +108,11 @@ async def gather(source: str | None = None, today: dt.date | None = None) -> dic
     for r in AE.window_rows(c, back=0, ahead=14, today=today):
         upcoming.setdefault(r["ticker"], r)
     portfolio = B.portfolio_section([{"symbol": s} for s in syms], values, upcoming, typical)
+    # マクロ統計（ECST の計算済みの結果だけを読む — ネットワークに出ない）
+    from . import api_econ as EC
+    since = (dt.datetime.now() - dt.timedelta(days=2)).isoformat()
+    econ = B.econ_section(EC._read("dashboard.json", None), [r for r in EC._read("state.json", {}).get("releases", []) if r["at"] >= since],
+                          EC._read("flows.json", None))
     # 信用残
     margin = B.margin_section(cov["items"], mstore().series)
     errs = sorted((latest or {}).get("errors", {}).keys())
@@ -119,7 +124,8 @@ async def gather(source: str | None = None, today: dt.date | None = None) -> dic
         "カバレッジ": f"{len(cov['items'])} 銘柄",
         "信用残": margin.get("last_date") or "未取り込み（MRGN）"}}
     return {"date": today.isoformat(), "generated_at": dt.datetime.now().isoformat(timespec="seconds"), "markets": markets,
-            "factors": factors, "auto": auto, "earnings": earnings, "portfolio": portfolio, "margin": margin, "health": health}
+            "factors": factors, "auto": auto, "earnings": earnings, "portfolio": portfolio, "margin": margin, "econ": econ,
+            "health": health}
 
 
 def save_brief(b: dict[str, Any]) -> Path:

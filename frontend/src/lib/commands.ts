@@ -46,6 +46,7 @@ export const FUNCTIONS: FnDef[] = [
   { code: 'STK', name: 'Stock Page', desc: '個別銘柄ページ: 株価の要因分解（個社要因 vs ファクター・スタイル）・信用残・需給・三位一体・決算／書き起こし・ファイル・同業', needsSecurity: true, group: 'Security' },
   { code: 'FCTR', name: 'Factor Monitor', desc: 'ファクターの計測（Notion 04.4: スタイル・マクロ・セクター）— どのファクターが強いか、時点スライダー付き', group: 'Macro' },
   { code: 'FLOW', name: 'Global Flows', desc: 'グローバル資金フロー: アセットクラス／カントリー／セクター（米国・TOPIX-17）／スタイル（ETF）— CMF・OBV・売買代金・相対強度・設定解約、ルールによる読み', group: 'Macro' },
+  { code: 'ECST', name: 'Macro Statistics', desc: 'マクロ統計（日本＋海外 約 400 系列：FRED・e-Stat・ECB・Eurostat・世界銀行・市場）を自動取得: 国別の合成指数（成長・インフレ・流動性）、統計版の成長×流動性、サプライズ指数、ヒートマップ、資金フロー（中銀・マネー・MMF・国際資本・投資部門別）、発表、局面別リターンと先行性。タブ: DASH/FLOWS/RELEASES/BROWSE/SERIES/SOURCES', group: 'Macro' },
   { code: 'BRIEF', name: 'Morning Brief', desc: '朝のブリーフ（ルールベース）: 市場・マクロ局面・スタイル・三位一体 AUTO の変化・決算（今日/明日/今週/直近の反応）・ポートフォリオの決算リスク・信用残・データの状態。毎朝 AUTO が作成し .md で保存', group: 'Security' },
   { code: 'COV', name: 'Coverage (Notion)', desc: 'Notion の銘柄マスタからカバレッジを読み込み: 次回決算日→Notion の四半期ページ、セクター/ティッカー別フォルダ（OneDrive 可）、銘柄ごとに XLS・Excel・フォルダ・Notion・ファンダメンタル・レポート', group: 'Security' },
   { code: 'TRIN', name: 'Trinity Framework', desc: '投資の三位一体: AUTO（ルールベースで自動更新する全銘柄の判定）・パイプライン・裁定ルール（全タブのハブ）', group: 'Framework' },

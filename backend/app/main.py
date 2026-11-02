@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api_analysis, api_brief, api_coverage, api_earnings, api_excel, api_factors, api_framework, api_insight, api_trinity, api_harness, api_macro, api_market, api_research
+from . import api_analysis, api_brief, api_coverage, api_earnings, api_econ, api_excel, api_factors, api_framework, api_insight, api_trinity, api_harness, api_macro, api_market, api_research
 from .config import settings
 from .hub import Client, Hub
 from .providers.tv_web import TVWeb
@@ -65,12 +65,15 @@ async def lifespan(_: FastAPI):
     watch = asyncio.create_task(_excel_watch())
     ind = asyncio.create_task(_indicator_alerts())
     trin = asyncio.create_task(api_trinity.loop(settings.trinity_first_delay_sec)) if settings.trinity_auto else None
+    econ = asyncio.create_task(api_econ.loop()) if os.environ.get("TERMINAL_ECON_AUTO", "1") != "0" else None
     log.info("active provider=%s", prov.name)
     yield
     watch.cancel()
     ind.cancel()
     if trin:
         trin.cancel()
+    if econ:
+        econ.cancel()
     await S.hub.stop()
     await S.registry.stop_all()
     await S.web.close()
@@ -81,7 +84,7 @@ app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), al
                    allow_headers=["*"])
 for r in (api_market.router, api_analysis.router, api_excel.router, api_harness.router, api_macro.router, api_research.router,
           api_framework.router, api_trinity.router, api_insight.router,
-          api_coverage.router, api_factors.router, api_earnings.router, api_brief.router):
+          api_coverage.router, api_factors.router, api_earnings.router, api_brief.router, api_econ.router):
     app.include_router(r)
 
 

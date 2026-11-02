@@ -26,6 +26,7 @@ import { COV } from './functions/Coverage';
 import { FCTR, STK } from './functions/Stock';
 import { FLOW } from './functions/Flows';
 import { BRIEF } from './functions/Brief';
+import { ECST } from './functions/Econ';
 
 const DEFAULT_PANELS: PanelState[] = [
   { id: 'p1', fn: 'GP' },
@@ -135,6 +136,9 @@ export default function App() {
       }
     }
     if (m.type === 'brief') toast(`朝のブリーフ ${m.date} を作成しました（BRIEF）`);
+    if (m.type === 'econ_release' && m.items?.length) {
+      toast(`統計の発表: ${m.items.slice(0, 4).map((x: any) => `${x.country} ${x.name} ${x.value?.toFixed?.(2) ?? x.value}${x.surprise != null && Math.abs(x.surprise) >= 1.5 ? `（サプライズ ${x.surprise > 0 ? '+' : ''}${x.surprise.toFixed(1)}）` : ''}`).join(' · ')}${m.items.length > 4 ? ` (+${m.items.length - 4})` : ''}`);
+    }
   });
 
   const setSecurity = useCallback((s: string) => setSecurityRaw(s), []);
@@ -262,6 +266,7 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'PFND': return <PFND />;
     case 'TRAK': return <TRAK />;
     case 'BRIEF': return <BRIEF />;
+    case 'ECST': return <ECST args={args} />;
     case 'COV': return <COV />;
     case 'STK': return <STK key={symbol} symbol={symbol} />;
     case 'FCTR': return <FCTR />;

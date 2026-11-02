@@ -5,6 +5,9 @@
 | `TERMINAL_PROVIDER` | `tradingview` | 起動時のデータソース（tradingview, yahoo, sim）。未設定なら、最後に UI で選んだもの（store.settings.provider）を復元する |
 | `TERMINAL_TRINITY_AUTO` | `1` | `0` で AUTO 三位一体の自動実行を止める（間隔は TRIN の AUTO タブで設定） |
 | `TERMINAL_TRINITY_FIRST_DELAY` | `20` | 起動から初回の自動実行までの秒数 |
+| `FRED_API_KEY` | （空） | FRED の API キー（任意）。無くても CSV で取得できる。検索（ECST → SOURCES）に必要。https://fred.stlouisfed.org で無料登録 |
+| `ESTAT_APP_ID` | （空） | **e-Stat のアプリケーション ID**。日本の公式統計（労働力調査・CPI・賃金・貿易統計・法人企業統計など）に必要。https://www.e-stat.go.jp で無料登録 |
+| `TERMINAL_ECON_AUTO` | `1` | `0` でマクロ統計（ECST）の自動更新を止める（間隔・ON/OFF は画面でも変更可） |
 | `NOTION_TOKEN` | （空） | COV が Notion API を使うためのインテグレーション・トークン。**秘密情報。コミットしないこと**（[COVERAGE.md](COVERAGE.md)） |
 | `NOTION_COVERAGE_DB` / `NOTION_MICRO_PAGE` | （空） | 銘柄マスタのデータベース ID と ATLAS / MICRO のページ ID（COV の SETTINGS でも可） |
 | `COVERAGE_DIR` | `<最初の Excel フォルダ>/Coverage` | カバレッジ・フォルダのルート。決算カレンダー（`_terminal/earnings/calendar.json`）もここに入る。OneDrive に移すときは COV の「ルートごと移す」を使う（SETTINGS のルートが `.env` より優先） |

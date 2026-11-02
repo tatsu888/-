@@ -87,6 +87,10 @@ Yahoo への変換は `backend/app/providers/yahoo.py` の `to_yahoo()` で行�
 
 | データ | 取得方法 | コード | 注意 |
 |---|---|---|---|
+| FRED（セントルイス連銀） | `fredgraph.csv?id=…`（鍵なし）／API（`FRED_API_KEY`） | `econ/sources.py`, ECST | 米国の統計の大半と BIS・IMF・OECD の転載。OECD 由来の一部は更新停止の可能性（画面で検出）。出典表示：Federal Reserve Bank of St. Louis |
+| e-Stat（政府統計の総合窓口） | REST API 3.0（`ESTAT_APP_ID`） | `econ/sources.py`, ECST | 表は検索で見つけて固定（ECON.md §2）。利用規約に従いクレジットを表示 |
+| ECB Data Portal／Eurostat／世界銀行／DBnomics | SDMX csv／JSON-stat／JSON | `econ/sources.py`, ECST | 鍵なし |
+| 財務省 対外対内証券投資・JPX 投資部門別 | ファイル取り込み（ECST → SOURCES） | `api_econ.py` | 形式は日付の列と数値の列を自動で検出 |
 | JPX 決算発表予定日一覧 | 一覧ページの xlsx をダウンロード（`config.jpx_index`）、またはユーザーがアップロード | `earnings.py`, `api_earnings.py`, COV・STK | 見出しを文字で判定（決算発表予定日／コード／決算期末／種別）。**ダウンロードは未検証**（この環境では通信が拒否された）。決算日と決算期末月の公式な出所 |
 | JPX 銘柄別信用取引週末残高 | ユーザーが CSV / XLSX をアップロード、または URL を指定 | `margin.py`, `MRGN` | 列名で自動判定（コード／売残／買残）。毎週火曜に前週末分が公表 |
 | Google Trends | 非公式 API（explore → widgetdata） | `attention.py`, `TRND` | 仕様変更・アクセス制限で失敗し得る |
@@ -109,3 +113,5 @@ Yahoo への変換は `backend/app/providers/yahoo.py` の `to_yahoo()` で行�
 開発に使ったクラウドコンテナでは、外向き通信がポリシーで制限されていました（パッケージレジストリのみ許可）。TradingView と Yahoo のホストを許可する場合は、環境設定の Network access で、次のドメインを Allowed domains に追加します（https://code.claude.com/docs/en/cloud-environments#network-access）。
 
 `*.tradingview.com`（data, scanner, symbol-search, news-headlines, economic-calendar）、`query1.finance.yahoo.com`、`query2.finance.yahoo.com`、`feeds.finance.yahoo.com`
+
+**マクロ統計（ECST）の取得は、開発したクラウド環境では通信制限ですべて 403 だったため未検証**。コードは各提供元の公開 ID から作成。ユーザーの PC での初回の取得結果（ECST → SOURCES）で確認・修正する。

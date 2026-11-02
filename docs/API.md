@@ -261,3 +261,25 @@ WebSocket：判定が変わると `{"type":"trinity","changes":[...],"at":...}` 
 {"type":"excel_changed","id":"0/7203_model.xlsx","mtime":...}
 {"type":"error","message":"..."} / {"type":"pong","t":123}
 ```
+
+## マクロ統計（/api/econ）— [ECON.md](ECON.md)
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /econ/catalog?country&category&source&q&key_only | 系列の一覧（最新値・変化・シグナル・z・傾向・状態） |
+| GET | /econ/series/{id}?tf&since | 観測値・シグナル・指標・出所の URL・e-Stat の選んだ表・フロー |
+| GET | /econ/dashboard | 国別の合成指数（成長・インフレ・流動性）・改善の割合・統計版の象限・サプライズ指数・ヒートマップ |
+| GET | /econ/flows | 資金フロー（中銀・マネー・MMF・国際資本・投資部門別）とドル換算の合計 |
+| GET | /econ/releases?days&key_only | 発表（新しい期間）とサプライズ |
+| GET | /econ/regime?id&asset&lag | 指標の状態別の資産リターンと先行性 |
+| POST | /econ/update `{ids, source, country, force}` | 今すぐ更新（バックグラウンド） |
+| GET | /econ/status | 進み具合、データ源ごとの状態、エラー、鍵、自動更新の設定 |
+| PUT | /econ/config `{auto, every_min}` | 自動更新の ON/OFF と間隔 |
+| GET | /econ/search?source=fred\|estat&q | 検索 |
+| POST | /econ/test `{source, code, freq, tf}` | 取得テスト（保存しない） |
+| POST / DELETE | /econ/custom, /econ/custom/{id} | 自分の系列の追加・削除 |
+| PUT | /econ/override/{id} `{code, resolved, disabled, clear}` | コードの修正、e-Stat の表の固定、停止 |
+| GET | /econ/estat/candidates/{id} | e-Stat の候補の表と選ぶ分類 |
+| POST | /econ/upload（multipart）→ /econ/upload/apply `{token, columns}` | CSV／Excel の取り込み（日付と数値の列を自動で検出） |
+
+websocket：`econ_release`（主要指標の発表）。

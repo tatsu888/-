@@ -144,6 +144,28 @@ def margin_section(items: list[dict[str, Any]], series_of, n: int = 8) -> dict[s
     return {"rows": rows[:n], "covered": len(rows), "last_date": last_date}
 
 
+def econ_section(dash: dict[str, Any] | None, releases: list[dict[str, Any]], flows: dict[str, Any] | None,
+                 n_rel: int = 12) -> dict[str, Any]:
+    """マクロ統計（ECST）: composites per region, the latest releases (key first, then the largest surprises),
+    central-bank liquidity flows."""
+    regions = []
+    for c in ("WORLD", "US", "JP", "EA", "CN", "UK"):
+        d = ((dash or {}).get("countries") or {}).get(c)
+        if not d:
+            continue
+        comp = {}
+        for k in ("growth", "inflation", "liquidity"):
+            s = d["composites"].get(k) or {}
+            ks = sorted(s)
+            if ks:
+                comp[k] = {"value": s[ks[-1]]["value"], "chg3": s[ks[-1]]["value"] - s[ks[-4]]["value"] if len(ks) > 3 else None}
+        q = d.get("quadrant") or {}
+        regions.append({"region": c, "comp": comp, "quadrant": (q.get("current") or {}).get("name"), "next": (q.get("next") or {}).get("name")})
+    rel = sorted(releases, key=lambda r: (not r.get("key"), -abs(r.get("surprise") or 0)))[:n_rel]
+    cb = (((flows or {}).get("groups") or {}).get("中銀の流動性") or {}).get("total")
+    return {"regions": regions, "releases": rel, "cb_liquidity": {k: cb.get(k) for k in ("m1", "m3", "m12")} if cb else None}
+
+
 # ---- markdown ---------------------------------------------------------------------------------------
 def _p(v: Any, d: int = 1, sign: bool = True) -> str:
     if v is None:
@@ -216,6 +238,21 @@ def render_md(b: dict[str, Any]) -> str:
             out.append(f"\n合計の想定の振れ（単純合計）: {_p(p['total_swing_pct'], 2, False)}（通常の値動きが分かる {len(p['rows']) - p['unknown']} 銘柄）")
     else:
         out.append(f"- 14 日以内に決算のある保有銘柄なし（保有 {p['positions']}）")
+    ec = b.get("econ") or {}
+    out += ["", "## マクロ統計（ECST）", ""]
+    if ec.get("regions"):
+        lab = {"growth": "成長", "inflation": "インフレ", "liquidity": "流動性"}
+        for r in ec["regions"]:
+            parts = [f"{lab[k]} {v['value']:+.2f}" + (f"（3 か月 {v['chg3']:+.2f}）" if v.get("chg3") is not None else "") for k, v in r["comp"].items()]
+            out.append(f"- {r['region']}: " + " / ".join(parts) + (f" — {r['quadrant']} → {r['next']}" if r.get("quadrant") else ""))
+    else:
+        out.append("- マクロ統計がまだない（ECST → 更新）")
+    if ec.get("cb_liquidity"):
+        cbl = ec["cb_liquidity"]
+        out.append(f"- 中銀の流動性（日米欧、10 億ドル）: 1 か月 {cbl['m1']:+.0f} / 3 か月 {cbl['m3']:+.0f}" if cbl.get("m1") is not None and cbl.get("m3") is not None else "- 中銀の流動性: 計算中")
+    for r in ec.get("releases") or []:
+        sz = f"（サプライズ {r['surprise']:+.1f}）" if r.get("surprise") is not None else ""
+        out.append(f"  - 発表 {r['country']} {r['name']} {r['ref']}: {r['value']:,.2f}{sz}")
     m = b["margin"]
     out += ["", f"## 信用残（{m.get('last_date') or '未取り込み'}）", ""]
     for r in m["rows"]:

@@ -137,6 +137,24 @@ export function BRIEF() {
             ) : <div className="pad muted">14 日以内に決算のある保有銘柄なし（保有 {b.portfolio.positions}）<button className="tb mini" onClick={() => run('PORT')}>PORT</button></div>}
           </div>
           <div className="box">
+            <h4>マクロ統計（ECST）</h4>
+            <div className="pad" style={{ fontSize: 11 }}>
+              {b.econ?.regions?.length ? (
+                <table className="t nowrap"><thead><tr><th className="l" /><th>成長</th><th>インフレ</th><th>流動性</th><th className="l">局面</th></tr></thead>
+                  <tbody>{b.econ.regions.map((r: any) => (
+                    <tr key={r.region}><td className="l">{r.region === 'WORLD' ? '世界' : r.region}</td>
+                      {['growth', 'inflation', 'liquidity'].map((k) => <td key={k} className={sgn(r.comp[k]?.value)}>{r.comp[k] ? `${r.comp[k].value >= 0 ? '+' : ''}${r.comp[k].value.toFixed(2)}` : '—'}{r.comp[k]?.chg3 != null ? <span className="muted">{r.comp[k].chg3 >= 0 ? ' ↑' : ' ↓'}</span> : null}</td>)}
+                      <td className="l yellow">{r.quadrant || ''}{r.next ? <span className="muted"> → {r.next}</span> : null}</td></tr>
+                  ))}</tbody></table>
+              ) : <div className="muted">マクロ統計がまだない <button className="tb mini" onClick={() => run('ECST')}>ECST</button></div>}
+              {b.econ?.cb_liquidity && b.econ.cb_liquidity.m3 != null && <div>中銀の流動性（日米欧、10 億ドル）: 1 か月 <span className={sgn(b.econ.cb_liquidity.m1)}>{b.econ.cb_liquidity.m1?.toFixed(0)}</span> · 3 か月 <span className={sgn(b.econ.cb_liquidity.m3)}>{b.econ.cb_liquidity.m3.toFixed(0)}</span></div>}
+              {(b.econ?.releases || []).map((r: any, i: number) => (
+                <div key={i}>• {r.country} <span className={r.key ? 'amber' : ''}>{r.name}</span> {r.ref}: {Number(r.value).toFixed(2)}{r.surprise != null ? <span className={Math.abs(r.surprise) >= 1.5 ? 'yellow' : 'muted'}>（サプライズ {r.surprise >= 0 ? '+' : ''}{r.surprise.toFixed(1)}）</span> : null}</div>
+              ))}
+              <button className="tb mini" onClick={() => run('ECST')}>ECST</button>
+            </div>
+          </div>
+          <div className="box">
             <h4>信用残（{b.margin.last_date || '未取り込み'}）</h4>
             {b.margin.rows.length ? (
               <table className="t nowrap" style={{ fontSize: 11 }}><thead><tr><th className="l">銘柄</th><th>信用倍率</th><th>前週</th><th>買残</th><th>売残</th></tr></thead>

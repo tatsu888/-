@@ -898,6 +898,26 @@ export function GLQ() {
       {r.loading && <Loading />}
       <ErrorBox error={r.error || gl?.error} />
       {occ && !occ.error && <GLPanel gl={occ} />}
+      <StatQuadrants />
+    </div>
+  );
+}
+
+/** The same quadrant computed from macro statistics (ECST composites) — next to the market-proxy version above. */
+function StatQuadrants() {
+  const d = useAsync(() => api.get<any>('/econ/dashboard'), []);
+  const cs = d.data?.countries || {};
+  const rows = ['WORLD', 'US', 'JP', 'EA', 'CN', 'UK'].filter((c) => cs[c]?.quadrant?.available);
+  if (!rows.length) return <div className="note">統計版（ECST の合成指数による成長×流動性）は、マクロ統計を取得すると表示されます（ECST → ⟳ 更新）。</div>;
+  return (
+    <div className="box" style={{ margin: 6 }}>
+      <h4>統計版の成長 × 流動性（ECST：実際の経済統計の合成指数）</h4>
+      <table className="t nowrap" style={{ fontSize: 11 }}><tbody>{rows.map((c) => {
+        const q = cs[c].quadrant;
+        return <tr key={c}><td className="l">{c === 'WORLD' ? '世界（米欧日中）' : d.data.country_names[c]}</td><td className="yellow">{q.current.name}</td><td className="muted">→ {q.next.name}</td><td className="muted">{q.rotation}</td>
+          <td className="muted">成長 {q.current.growth.toFixed(2)} · 流動性 {q.current.liquidity.toFixed(2)}（{q.current.month}）</td></tr>;
+      })}</tbody></table>
+      <div className="note" style={{ fontSize: 10 }}>上の図は市場データの代理指標、この表は経済統計（生産・雇用・物価・マネー・信用・金融環境など）の合成。食い違うときは、市場が統計を先取りしているか、統計が遅れているかを考える。</div>
     </div>
   );
 }

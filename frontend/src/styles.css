@@ -253,3 +253,8 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 a.tb { text-decoration: none; display: inline-block; }
 .brief-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 6px; padding: 6px; }
 .brief-grid .box { margin: 0; }
+.econ-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; padding: 6px; }
+.econ-card { margin: 0; cursor: pointer; }
+.econ-card.sel { border-color: var(--amber); }
+.hbar-list { margin-top: 4px; }
+.hbar-row { display: flex; align-items: center; gap: 4px; height: 14px; }
