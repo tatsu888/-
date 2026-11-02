@@ -37,6 +37,17 @@ async def _excel_watch() -> None:
             log.debug("excel watch: %s", e)
 
 
+async def _indicator_alerts() -> None:
+    """Evaluate indicator alerts (RSI, SMA cross, golden cross …) once a minute on cached history."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            for a in await S.alerts.evaluate_indicators(lambda s, iv, n: S.history(s, iv, n)):
+                await S.hub.broadcast({"type": "alert", "alert": a})
+        except Exception as e:  # noqa: BLE001
+            log.debug("indicator alerts: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     saved = (S.store.get("settings") or {}).get("provider")
@@ -48,9 +59,11 @@ async def lifespan(_: FastAPI):
     await S.hub.start()
     await S.hub.resync()
     watch = asyncio.create_task(_excel_watch())
+    ind = asyncio.create_task(_indicator_alerts())
     log.info("active provider=%s", prov.name)
     yield
     watch.cancel()
+    ind.cancel()
     await S.hub.stop()
     await S.registry.stop_all()
     await S.web.close()

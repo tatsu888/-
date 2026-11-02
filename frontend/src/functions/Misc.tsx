@@ -60,7 +60,13 @@ export function ECO() {
 export function ALRT({ symbol }: { symbol: string }) {
   const { universe, toast } = useTerminal();
   const [list, setList] = useState<any[]>([]);
-  const [form, setForm] = useState({ symbol, condition: 'cross_up', value: '', note: '' });
+  const [form, setForm] = useState({ symbol, condition: 'cross_up', value: '', note: '', interval: '1D' });
+  const IND: Record<string, [string, string]> = {
+    rsi_above: ['RSI(14) ≥', '70'], rsi_below: ['RSI(14) ≤', '30'], price_cross_sma_up: ['SMA period', '50'], price_cross_sma_down: ['SMA period', '50'],
+    golden_cross: ['(SMA50/200)', '0'], dead_cross: ['(SMA50/200)', '0'], macd_cross_up: ['(12,26,9)', '0'], macd_cross_down: ['(12,26,9)', '0'],
+    volume_spike: ['× 20-bar avg', '3'], breakout_high: ['N-bar high', '20'], breakout_low: ['N-bar low', '20'],
+  };
+  const isInd = form.condition in IND;
   const load = () => api.get<any[]>('/alerts').then(setList);
   useEffect(() => void load(), []);
   useEffect(() => setForm((f) => ({ ...f, symbol })), [symbol]);
@@ -68,7 +74,7 @@ export function ALRT({ symbol }: { symbol: string }) {
   const quotes = useQuotes([...new Set(list.map((a) => a.symbol))]);
   async function create() {
     try {
-      await api.post('/alerts', { ...form, value: parseFloat(form.value) });
+      await api.post('/alerts', { ...form, value: parseFloat(form.value || (isInd ? IND[form.condition][1] : '')) });
       setForm((f) => ({ ...f, value: '', note: '' }));
       load();
     } catch (e: any) {
@@ -79,12 +85,19 @@ export function ALRT({ symbol }: { symbol: string }) {
     <div>
       <div className="toolbar">
         <input className="inp" style={{ width: 130 }} value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value.toUpperCase() })} />
-        <select className="inp" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
-          {(universe?.alert_conditions ?? []).map((c) => <option key={c}>{c}</option>)}
+        <select className="inp" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value, value: '' })}>
+          <optgroup label="price (every tick)">{(universe?.alert_conditions ?? []).filter((c) => !(c in IND)).map((c) => <option key={c}>{c}</option>)}</optgroup>
+          <optgroup label="indicator (checked every minute)">{(universe?.alert_conditions ?? []).filter((c) => c in IND).map((c) => <option key={c}>{c}</option>)}</optgroup>
         </select>
-        <input className="inp" style={{ width: 90 }} value={form.value} placeholder="value" onChange={(e) => setForm({ ...form, value: e.target.value })} />
+        {isInd && <span className="lbl">{IND[form.condition][0]}</span>}
+        <input className="inp" style={{ width: 90 }} value={form.value} placeholder={isInd ? IND[form.condition][1] : 'value'} onChange={(e) => setForm({ ...form, value: e.target.value })} />
+        {isInd && (
+          <select className="inp" value={form.interval} onChange={(e) => setForm({ ...form, interval: e.target.value })}>
+            {['60', '240', '1D', '1W'].map((x) => <option key={x}>{x}</option>)}
+          </select>
+        )}
         <input className="inp" style={{ width: 160 }} value={form.note} placeholder="note" onChange={(e) => setForm({ ...form, note: e.target.value })} />
-        <button className="tb green" onClick={create} disabled={!form.value}>CREATE</button>
+        <button className="tb green" onClick={create} disabled={!form.value && !isInd}>CREATE</button>
         <button className="tb" onClick={() => Notification?.requestPermission?.()}>ENABLE DESKTOP NOTIFY</button>
       </div>
       <table className="t">
@@ -93,7 +106,7 @@ export function ALRT({ symbol }: { symbol: string }) {
           {list.map((a) => (
             <tr key={a.id}>
               <td className="l sym">{a.symbol}</td>
-              <td className="l">{a.condition}</td>
+              <td className="l">{a.condition}{a.kind === 'indicator' ? <span className="muted"> [{a.interval}]</span> : ''}</td>
               <td>{fmtNum(a.value, 4)}</td>
               <td>{fmtPrice(quotes.get(a.symbol)?.last)}</td>
               <td className="l muted">{a.note}</td>

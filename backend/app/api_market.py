@@ -158,9 +158,10 @@ async def calendar(days_back: int = Query(1, ge=0, le=30), days_ahead: int = Que
 class AlertReq(BaseModel):
     symbol: str
     condition: str
-    value: float
+    value: float = 0.0
     note: str = ""
     once: bool = True
+    interval: str = "1D"
 
 
 class AlertPatch(BaseModel):
@@ -177,7 +178,7 @@ async def list_alerts():
 @router.post("/alerts")
 async def create_alert(req: AlertReq):
     try:
-        a = S.alerts.create(req.symbol, req.condition, req.value, req.note, req.once)
+        a = S.alerts.create(req.symbol, req.condition, req.value, req.note, req.once, interval_or_400(req.interval))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     await S.hub.resync()

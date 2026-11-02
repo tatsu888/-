@@ -138,3 +138,36 @@ export function mergeBar(bars: Bar[], bar: Bar): Bar[] {
   if (bar.time > last.time) return [...bars, bar];
   return bars;
 }
+
+export function stochastic(bars: Bar[], k = 14, d = 3): { k: (number | null)[]; d: (number | null)[] } {
+  const kv: (number | null)[] = bars.map((_, i) => {
+    if (i < k - 1) return null;
+    const w = bars.slice(i - k + 1, i + 1);
+    const hi = Math.max(...w.map((b) => b.high)), lo = Math.min(...w.map((b) => b.low));
+    return hi === lo ? 50 : ((bars[i].close - lo) / (hi - lo)) * 100;
+  });
+  const start = k - 1;
+  const dv = start < bars.length ? [...new Array(start).fill(null), ...sma(kv.slice(start) as number[], d)] : kv.map(() => null);
+  return { k: kv, d: dv };
+}
+
+/** Ichimoku kinko hyo (9/26/52). Senkou spans are shifted forward 26 bars (future times extrapolated). */
+export function ichimoku(bars: Bar[], t = 9, kj = 26, sb = 52) {
+  const mid = (i: number, n: number) => {
+    if (i < n - 1) return null;
+    const w = bars.slice(i - n + 1, i + 1);
+    return (Math.max(...w.map((b) => b.high)) + Math.min(...w.map((b) => b.low))) / 2;
+  };
+  const step = bars.length > 1 ? bars[bars.length - 1].time - bars[bars.length - 2].time : 86400;
+  const timeAt = (i: number) => (i < bars.length ? bars[i].time : bars[bars.length - 1].time + (i - bars.length + 1) * step);
+  const tenkan: Pt[] = [], kijun: Pt[] = [], spanA: Pt[] = [], spanB: Pt[] = [], chikou: Pt[] = [];
+  bars.forEach((b, i) => {
+    const tv = mid(i, t), kv = mid(i, kj), bv = mid(i, sb);
+    if (tv != null) tenkan.push({ time: b.time, value: tv });
+    if (kv != null) kijun.push({ time: b.time, value: kv });
+    if (tv != null && kv != null) spanA.push({ time: timeAt(i + kj), value: (tv + kv) / 2 });
+    if (bv != null) spanB.push({ time: timeAt(i + kj), value: bv });
+    if (i - kj >= 0) chikou.push({ time: bars[i - kj].time, value: b.close });
+  });
+  return { tenkan, kijun, spanA, spanB, chikou };
+}

@@ -8,7 +8,7 @@ import {
 import { api } from '../lib/api';
 import { useBars, useQuotes } from '../lib/feed';
 import { cls, fmtBig, fmtPct, fmtPrice, fmtTime } from '../lib/format';
-import { bollinger, ema, heikinAshi, macd, mergeBar, rsi, sma, toPts, vwap } from '../lib/indicators';
+import { atr, bollinger, ema, heikinAshi, ichimoku, macd, mergeBar, rsi, sma, stochastic, toPts, vwap } from '../lib/indicators';
 import type { Bar } from '../lib/types';
 import { DelayBadge } from '../components/ui';
 import { useTerminal } from '../ctx';
@@ -16,7 +16,7 @@ import { useTerminal } from '../ctx';
 const INTERVALS = ['1', '5', '15', '30', '60', '240', '1D', '1W', '1M'];
 const IV_LABEL: Record<string, string> = { '1': '1m', '5': '5m', '15': '15m', '30': '30m', '60': '1H', '240': '4H', '1D': 'D', '1W': 'W', '1M': 'M' };
 const TYPES = ['CANDLE', 'BAR', 'LINE', 'AREA', 'HA'] as const;
-const INDS = ['VOL', 'SMA20', 'SMA50', 'SMA200', 'EMA20', 'BB', 'VWAP', 'RSI', 'MACD'] as const;
+const INDS = ['VOL', 'SMA20', 'SMA50', 'SMA200', 'EMA20', 'BB', 'VWAP', 'ICHI', 'RSI', 'MACD', 'STOCH', 'ATR'] as const;
 const COMPARE_COLORS = ['#59e3ff', '#ff6ad5', '#ffd84a', '#a98bff', '#ff9f43'];
 type Ind = (typeof INDS)[number];
 interface Drawings {
@@ -156,6 +156,13 @@ export default function GP({ symbol }: { symbol: string }) {
       line('#5ea9ff', 'BBL');
     }
     if (inds.includes('VWAP')) line('#a98bff', 'VWAP', 0, 2);
+    if (inds.includes('ICHI')) {
+      line('#ff4545', 'ICHI_T');
+      line('#5ea9ff', 'ICHI_K');
+      line('rgba(47,209,122,0.8)', 'ICHI_A');
+      line('rgba(255,69,69,0.8)', 'ICHI_B');
+      line('rgba(169,139,255,0.6)', 'ICHI_C');
+    }
     let pane = 1;
     if (inds.includes('RSI')) {
       const r = line('#ffa028', 'RSI', pane);
@@ -168,6 +175,17 @@ export default function GP({ symbol }: { symbol: string }) {
       (h as any)._kind = 'MACDH';
       line('#59e3ff', 'MACD', pane);
       line('#ff6ad5', 'MACDS', pane);
+      pane++;
+    }
+    if (inds.includes('STOCH')) {
+      const k = line('#59e3ff', 'STOCHK', pane);
+      line('#ff6ad5', 'STOCHD', pane);
+      k.createPriceLine({ price: 80, color: '#ff4545', lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: false, title: '' });
+      k.createPriceLine({ price: 20, color: '#2fd17a', lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: false, title: '' });
+      pane++;
+    }
+    if (inds.includes('ATR')) {
+      line('#ffd84a', 'ATR', pane);
       pane++;
     }
     c.panes().forEach((p, i) => p.setStretchFactor(i === 0 ? 3 : 1));
@@ -204,6 +222,9 @@ export default function GP({ symbol }: { symbol: string }) {
     const intraday = !['1D', '1W', '1M'].includes(interval);
     const bb = inds.includes('BB') ? bollinger(closes) : null;
     const md = inds.includes('MACD') ? macd(closes) : null;
+    const st = inds.includes('STOCH') ? stochastic(all) : null;
+    const ich = inds.includes('ICHI') ? ichimoku(all) : null;
+    const tp = (p: { time: number; value: number }[]) => p.map((x) => ({ time: t(x.time), value: x.value }));
     for (const s of extra.current) {
       const k = (s as any)._kind as string | undefined;
       if (!k) continue;
@@ -219,6 +240,14 @@ export default function GP({ symbol }: { symbol: string }) {
       else if (k === 'VWAP') s.setData(pts(vwap(all, intraday)));
       else if (k === 'RSI') s.setData(pts(rsi(closes)));
       else if (k === 'MACD') s.setData(pts(md!.line));
+      else if (k === 'STOCHK') s.setData(pts(st!.k));
+      else if (k === 'STOCHD') s.setData(pts(st!.d));
+      else if (k === 'ATR') s.setData(pts(atr(all)));
+      else if (k === 'ICHI_T') s.setData(tp(ich!.tenkan));
+      else if (k === 'ICHI_K') s.setData(tp(ich!.kijun));
+      else if (k === 'ICHI_A') s.setData(tp(ich!.spanA));
+      else if (k === 'ICHI_B') s.setData(tp(ich!.spanB));
+      else if (k === 'ICHI_C') s.setData(tp(ich!.chikou));
       else if (k === 'MACDS') s.setData(pts(md!.signal));
       else if (k === 'MACDH') s.setData(toPts(all, md!.hist).map((p) => ({ time: t(p.time), value: p.value, color: p.value >= 0 ? '#2fd17a' : '#ff4545' })));
       else if (k.startsWith('CMP:')) {
@@ -341,6 +370,15 @@ export default function GP({ symbol }: { symbol: string }) {
           </button>
         ))}
         <span style={{ flex: 1 }} />
+        <button className="tb" title="save the chart as PNG" onClick={() => {
+          const c = chart.current;
+          if (!c) return;
+          const canvas = c.takeScreenshot();
+          const a = document.createElement('a');
+          a.href = canvas.toDataURL('image/png');
+          a.download = `${symbol.replace(':', '_')}_${interval}.png`;
+          a.click();
+        }}>PNG</button>
         <a className="tb" href={api.url('/history.csv', { symbol, interval, bars: 2000 })}>
           CSV
         </a>

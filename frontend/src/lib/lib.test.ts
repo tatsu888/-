@@ -95,3 +95,17 @@ describe('excel conditional formatting', () => {
     expect(selectionStats([1, 2, 'x', null, 3])).toMatchObject({ count: 4, nums: 3, sum: 6, avg: 2, min: 1, max: 3 });
   });
 });
+
+import { atr, ichimoku, stochastic } from './indicators';
+describe('stoch / atr / ichimoku', () => {
+  const bars = Array.from({ length: 80 }, (_, i) => ({ time: i * 86400, open: 100 + i, high: 101 + i, low: 99 + i, close: 100.5 + i, volume: 1 }));
+  it('computes', () => {
+    const s = stochastic(bars);
+    expect(s.k[79]).toBeCloseTo(((179.5 - 165) / (180 - 165)) * 100, 6); // close 179.5, 14-bar low 165, high 180
+    expect(s.d[79]).not.toBeNull();
+    expect(atr(bars)[79]).toBeCloseTo(2, 6);
+    const ich = ichimoku(bars);
+    expect(ich.spanA[ich.spanA.length - 1].time).toBe((79 + 26) * 86400); // projected 26 bars ahead
+    expect(ich.chikou[0].time).toBe(0);
+  });
+});
