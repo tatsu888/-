@@ -8,6 +8,7 @@ Changes (verdict / conviction / quadrant) are pushed to browsers as {"type": "tr
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 import logging
 import time
@@ -151,6 +152,15 @@ async def run_once(source: str | None = None) -> dict[str, Any]:
                 build_from({s: series[s] for s in syms if s in series}, scan, mk, source)
             except Exception as e:  # noqa: BLE001
                 errors["factor library"] = str(e)
+            try:  # earnings calendar: mechanical fill once a day (JPX → TradingView → estimates)
+                from .api_earnings import load as eload, refresh as erefresh
+                ec = eload()
+                if ec["config"].get("auto", True) and (ec["config"].get("last_refresh") or "")[:10] != dt.date.today().isoformat():
+                    er = await erefresh(ec)
+                    if er["changes"] and S.hub:
+                        await S.hub.broadcast({"type": "earnings", "changes": er["changes"][:20]})
+            except Exception as e:  # noqa: BLE001
+                errors["earnings calendar"] = str(e)
             try:  # FLOW: daily ETF share counts → real creations / redemptions accumulate over time
                 from .api_factors import flows_record
                 await flows_record()
@@ -225,12 +235,19 @@ async def _enrich(inputs: dict[str, dict[str, Any]], syms: list[str], scan: dict
             for x in res["rows"]:
                 if "quadrant" in x:
                     q[x["symbol"]] = {"etf": x["symbol"], "label": x["label"], "quadrant": x["quadrant"]}
+    try:  # days to earnings: the terminal's earnings calendar (JPX 確定 etc.) first, TradingView as fallback
+        from .api_earnings import load as earn_load, summary as earn_summary
+        ecal = earn_load()
+    except Exception:  # noqa: BLE001
+        ecal = None
     for s in syms:
         etf = sectors.get(s)
         inputs[s]["sector_rrg"] = q.get(etf) if etf else None
         if s in xr:
             inputs[s]["xray"] = {**xr[s]["shares"], "verdict": xr[s]["verdict"]}
-        inputs[s]["days_to_earnings"] = _days_to((scan.get(s) or {}).get("earnings_release_next_date"))
+        es = earn_summary((meta.get(s) or {}).get("ticker") or s.split(":")[-1], ecal) if ecal else None
+        inputs[s]["days_to_earnings"] = es["days"] if es and es.get("days") is not None \
+            else _days_to((scan.get(s) or {}).get("earnings_release_next_date"))
 
 
 async def _themes_and_sectors(source: str | None, errors: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:

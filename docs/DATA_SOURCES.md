@@ -87,6 +87,7 @@ Yahoo への変換は `backend/app/providers/yahoo.py` の `to_yahoo()` で行�
 
 | データ | 取得方法 | コード | 注意 |
 |---|---|---|---|
+| JPX 決算発表予定日一覧 | 一覧ページの xlsx をダウンロード（`config.jpx_index`）、またはユーザーがアップロード | `earnings.py`, `api_earnings.py`, COV・STK | 見出しを文字で判定（決算発表予定日／コード／決算期末／種別）。**ダウンロードは未検証**（この環境では通信が拒否された）。決算日と決算期末月の公式な出所 |
 | JPX 銘柄別信用取引週末残高 | ユーザーが CSV / XLSX をアップロード、または URL を指定 | `margin.py`, `MRGN` | 列名で自動判定（コード／売残／買残）。毎週火曜に前週末分が公表 |
 | Google Trends | 非公式 API（explore → widgetdata） | `attention.py`, `TRND` | 仕様変更・アクセス制限で失敗し得る |
 | X（Twitter） | 公式 API v2（`X_BEARER_TOKEN`） | `attention.py` | 有料プランが必要 |

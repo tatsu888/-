@@ -1,11 +1,10 @@
 """COV — coverage from the Notion 銘柄マスタ: fiscal quarters, folder layout, fundamental report (pure helpers).
 
-Fiscal-quarter labels follow the user's ATLAS convention (verified on existing pages):
-    FY label = fiscal-year START year + 1
-        3月決算 (FYE 3):  Apr 2026–Mar 2027 = FY2027 (1Q = Apr–Jun 2026)
-        12月決算 (FYE 12): Jan–Dec 2025      = FY2026 (4Q = Oct–Dec 2025, reported Feb 2026)
-        1月決算 (FYE 1):  Feb 2026–Jan 2027 = FY2027 (2Q = May–Jul 2026)
-    "■" is appended once the quarter has ended (銘柄マスタ: 決算期末月は「終わった期」の判定に使う正本).
+Fiscal-quarter labels: the system of record is the terminal's earnings calendar (earnings.py / api_earnings.py).
+    Default convention "end" (standard 決算期 naming): FY = the year in which the fiscal year ENDS
+        3月決算: Apr 2026–Mar 2027 = FY2027 ／ 12月決算: Jan–Dec 2025 = FY2025 ／ 1月決算: Feb 2026–Jan 2027 = FY2027
+    Option "start_plus_1" reproduces the labels found on the ATLAS Notion pages (differs only for 12月決算),
+    which the user says may be wrong. "■" is appended once the quarter has ended.
 
 Folders (local; designed to be moved to OneDrive later — everything is stored RELATIVE to the root):
     layout "sector": <root>/GICS4530_半導体・半導体製造装置/6857_アドバンテスト/
@@ -42,13 +41,10 @@ def _month_end(y: int, m: int) -> dt.date:
     return dt.date(y, m, calendar.monthrange(y, m)[1])
 
 
-def quarter_of(quarter_end: dt.date, fye_month: int) -> tuple[int, int]:
-    """(FY label, quarter n) of the fiscal quarter that ends at ``quarter_end``."""
-    start_month = fye_month % 12 + 1
-    k = (quarter_end.month - start_month) % 12
-    n = k // 3 + 1
-    start_year = quarter_end.year if quarter_end.month >= start_month else quarter_end.year - 1
-    return start_year + 1, n
+def quarter_of(quarter_end: dt.date, fye_month: int, convention: str = "end") -> tuple[int, int]:
+    """(FY label, quarter n) — delegates to earnings.fy_of (one implementation of the fiscal calendar)."""
+    from .earnings import fy_of
+    return fy_of(quarter_end, fye_month, convention)
 
 
 def label(fy: int, n: int, ended: bool) -> str:
@@ -56,8 +52,7 @@ def label(fy: int, n: int, ended: bool) -> str:
 
 
 def last_quarter_end(before: dt.date, fye_month: int, min_gap_days: int = 7) -> dt.date:
-    """Most recent fiscal-quarter end at least ``min_gap_days`` before ``before`` (results are announced
-    weeks after the quarter closes)."""
+    """Most recent fiscal-quarter end at least ``min_gap_days`` before ``before``."""
     y, m = before.year, before.month
     for _ in range(15):
         if (m - fye_month) % 3 == 0:
@@ -70,10 +65,12 @@ def last_quarter_end(before: dt.date, fye_month: int, min_gap_days: int = 7) -> 
     raise ValueError("no quarter end found")
 
 
-def reported_quarter(earnings_date: dt.date, fye_month: int, today: dt.date | None = None) -> dict[str, Any]:
-    """Which quarter an earnings release on ``earnings_date`` reports, with the ATLAS page title."""
+def reported_quarter(earnings_date: dt.date, fye_month: int, today: dt.date | None = None,
+                     convention: str = "end") -> dict[str, Any]:
+    """Which quarter an earnings release reports. convention "end" = standard 決算期 naming (FY = year the
+    fiscal year ends); "start_plus_1" = the labels found on the ATLAS pages (differs for 12月決算)."""
     e = last_quarter_end(earnings_date, fye_month)
-    fy, n = quarter_of(e, fye_month)
+    fy, n = quarter_of(e, fye_month, convention)
     today = today or dt.date.today()
     return {"fy": fy, "q": n, "quarter_end": e.isoformat(), "title": label(fy, n, e < today),
             "title_base": label(fy, n, False)}

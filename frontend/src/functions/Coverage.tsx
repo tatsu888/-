@@ -1,6 +1,7 @@
-// COV — coverage from the Notion 銘柄マスタ: sector tree / ticker list, earnings dates (→ Notion quarter pages),
-// local folders (sector or ticker layout; OneDrive-ready, stored relative to the root), and per-stock actions:
-// XLS view, open/create Excel, open folder, open Notion page, rule-based fundamental report (→ reports/ and Notion).
+// COV — coverage list (tickers read from the Notion 銘柄マスタ): sector tree / ticker list, earnings dates from the
+// terminal's own earnings calendar (JPX → TradingView → estimates; Notion is NOT the source of truth), local folders
+// (sector or ticker layout; OneDrive-ready, stored relative to the root), and per-stock actions: XLS view, open/create
+// Excel, open folder, open Notion page, rule-based fundamental report (→ reports/; Notion export optional).
 import { useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
@@ -15,7 +16,8 @@ export function COV() {
   const [group, setGroup] = useState<'GICS' | 'TICKER' | 'EARN'>('GICS');
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
-  const [pane, setPane] = useState<'' | 'SETTINGS' | 'NOTION' | 'FOLDERS'>('');
+  const [pane, setPane] = useState<'' | 'SETTINGS' | 'NOTION' | 'FOLDERS' | 'LOG'>('');
+  const elog = useAsync(() => (pane === 'LOG' ? api.get<any>('/earnings/log', { limit: 200 }) : Promise.resolve(null)), [pane]);
   const [plan, setPlan] = useState<any>(null);
   const [fplan, setFplan] = useState<any>(null);
   const [report, setReport] = useState<any>(null);
@@ -41,8 +43,11 @@ export function COV() {
     <div>
       <div className="toolbar">
         <button className="tb on" disabled={!!busy} onClick={() => act('SYNC', () => api.post('/coverage/sync', {}), (x) => toast(`Notion 同期: ${x.items} 銘柄、個社ページ ${x.pages}（API ${x.calls} 回）`))}>⟳ SYNC FROM NOTION</button>
-        <button className="tb" disabled={!!busy || !items.length} onClick={() => act('EARN', () => api.post('/coverage/earnings/refresh', {}), (x) => toast(`決算日を更新: ${x.updated}/${x.of}`))}>決算日を更新</button>
-        <button className={`tb ${pane === 'NOTION' ? 'on' : ''}`} onClick={() => setPane(pane === 'NOTION' ? '' : 'NOTION')}>NOTION 決算書き込み…</button>
+        <button className="tb" disabled={!!busy || !items.length} title="JPX 決算発表予定日 → TradingView → 推定 の順に機械的に埋める（手入力は上書きしない）" onClick={() => act('EARN', () => api.post('/coverage/earnings/refresh', {}), (x) => toast(`決算日を更新: ${x.companies} 社、変更 ${x.n_changes} 件${x.errors && Object.keys(x.errors).length ? '（' + Object.keys(x.errors).join(', ') + ' 取得失敗）' : ''}`))}>決算日を更新</button>
+        <label className="tb" title="JPX の決算発表予定日一覧（xlsx）を手動で取り込む" style={{ cursor: 'pointer' }}>JPX 取り込み
+          <input type="file" accept=".xlsx" style={{ display: 'none' }} onChange={(ev) => { const f = ev.target.files?.[0]; if (!f) return; const fd = new FormData(); fd.append('file', f); act('JPX', () => fetch('/api/earnings/jpx/import', { method: 'POST', body: fd }).then(async (res) => { if (!res.ok) throw new Error((await res.json()).detail); return res.json(); }), (x) => toast(`JPX: ${x.records} 件取り込み、変更 ${x.n_changes} 件`)); ev.target.value = ''; }} />
+        </label>
+        <button className={`tb ${pane === 'LOG' ? 'on' : ''}`} onClick={() => setPane(pane === 'LOG' ? '' : 'LOG')}>決算ログ</button>
         <button className={`tb ${pane === 'FOLDERS' ? 'on' : ''}`} onClick={() => setPane(pane === 'FOLDERS' ? '' : 'FOLDERS')}>フォルダ…</button>
         <button className={`tb ${pane === 'SETTINGS' ? 'on' : ''}`} onClick={() => { setCfg({ ...(d?.config || {}), db_id: d?.db_id || '', micro_page: d?.micro_page || '' }); setPane(pane === 'SETTINGS' ? '' : 'SETTINGS'); }}>SETTINGS</button>
         <input className="inp" style={{ width: 150 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="ticker / 社名 / サブグループ" />
@@ -62,12 +67,13 @@ export function COV() {
             <label>銘柄マスタ DB ID<input className="inp" value={cfg.db_id || ''} onChange={(e) => setCfg({ ...cfg, db_id: e.target.value })} /></label>
             <label>ATLAS / MICRO ページ ID<input className="inp" value={cfg.micro_page || ''} onChange={(e) => setCfg({ ...cfg, micro_page: e.target.value })} /></label>
             <div><button className="tb on" onClick={() => act('SAVE', () => api.put('/coverage/config', cfg), () => setPane(''))}>SAVE</button> <span className="muted">トークンは画面では扱わない（.env の NOTION_TOKEN）</span></div>
+            <div className="muted" style={{ marginTop: 6 }}>決算・四半期はターミナルの決算カレンダーで管理（Notion は正本ではない）。<button className="tb mini" onClick={() => setPane('NOTION')}>任意: Notion へ書き出す（非推奨）</button></div>
           </div>
         </div>
       )}
       {pane === 'NOTION' && (
         <div className="box" style={{ margin: 6 }}>
-          <h4>NOTION — 次回決算日を書き込む（まず PREVIEW、確認してから APPLY）</h4>
+          <h4>（任意・非推奨）NOTION へ書き出す — 正本はターミナルの決算カレンダー。まず PREVIEW、確認してから APPLY</h4>
           <div className="toolbar">
             <label className="muted"><input type="checkbox" checked={opt.create_pages} onChange={(e) => setOpt({ ...opt, create_pages: e.target.checked })} /> 個社ページの下に四半期ページ（例: FY2027 3Q）を作成（既にあれば作らない）</label>
             <label className="muted"><input type="checkbox" checked={opt.update_master} onChange={(e) => setOpt({ ...opt, update_master: e.target.checked })} /> 銘柄マスタの 次回決算日／次回決算期 を更新</label>
@@ -79,11 +85,21 @@ export function COV() {
           {plan && (
             <table className="t nowrap"><thead><tr><th className="l">TICKER</th><th className="l">社名</th><th>決算日</th><th>日数</th><th className="l">四半期ページ</th><th className="l">ページ</th><th className="l">銘柄マスタ</th></tr></thead>
               <tbody>{plan.plan.map((p: any) => (
-                <tr key={p.ticker}><td className="l amber">{p.ticker}</td><td className="l">{p.name}</td><td>{p.date}</td><td>{p.days}</td><td className="l">{p.title || '—'}</td>
+                <tr key={p.ticker}><td className="l amber">{p.ticker}</td><td className="l">{p.name}</td><td title={p.source || ''}>{p.date} {p.status ? <span className={`badge st-${p.status}`}>{p.status}</span> : null}</td><td>{p.days}</td><td className="l">{p.title || '—'}{p.note ? <span className="yellow" title={p.note}> ⚠ FY</span> : null}</td>
                   <td className={`l ${String(p.page_action).startsWith('created') ? 'up' : String(p.page_action).startsWith('error') ? 'down' : 'muted'}`}>{p.page_action}{p.page_url ? <a href={p.page_url} target="_blank" rel="noreferrer"> ↗</a> : null}</td>
                   <td className={`l ${p.master_action === 'updated' ? 'up' : String(p.master_action).startsWith('error') ? 'down' : 'muted'}`}>{p.master_action}</td></tr>
               ))}</tbody></table>
           )}
+        </div>
+      )}
+      {pane === 'LOG' && (
+        <div className="box" style={{ margin: 6 }}>
+          <h4>決算ログ — 機械的な更新・手入力・不一致の記録</h4>
+          <table className="t nowrap"><tbody>{(elog.data?.log || []).map((x: any, i: number) => (
+            <tr key={i}><td className="muted">{String(x.at).slice(5, 16).replace('T', ' ')}</td><td className="l amber">{x.ticker}</td><td className="l">{x.qid || ''}</td>
+              <td className={`l ${String(x.what).includes('不一致') ? 'down' : ''}`}>{x.what}</td><td className="l muted">{String(x.from)}</td><td className="l">→ {String(x.to)}</td><td className="l muted">{x.source}</td></tr>
+          ))}</tbody></table>
+          {!elog.data?.log?.length && <div className="note">まだ記録がありません。</div>}
         </div>
       )}
       {pane === 'FOLDERS' && (
@@ -130,9 +146,12 @@ export function COV() {
                       <button className="tb" title="ファンダメンタル・レポート（ルールベース）" onClick={() => act('REPORT', () => api.post(`/coverage/${x.ticker}/report`, { save: true, to_notion: false }), (y) => setReport({ ...y, ticker: x.ticker, hasPage: !!x.page }))}>REPORT</button>
                     </td>
                     <td className="l">{x.name}</td>
-                    <td className={e.days != null && e.days >= 0 && e.days <= 14 ? 'yellow' : ''}>{e.next || ''}{e.days != null ? <span className="muted"> ({e.days}d)</span> : null}</td>
-                    <td className="l muted">{e.next_title || ''}</td>
-                    <td>{x.fye_month ? `${x.fye_month}月${x.fye_uncertain ? '?' : ''}` : ''}</td>
+                    <td className={e.days != null && e.days >= 0 && e.days <= 14 ? 'yellow' : ''} title={e.next_source || ''}>{e.next || ''}{e.days != null ? <span className="muted"> ({e.days}d)</span> : null} {e.next_status ? <span className={`badge st-${e.next_status}`}>{e.next_status}</span> : null}</td>
+                    <td className="l muted" title={e.next_label_ja || ''}>{e.next_title || ''}</td>
+                    <td title={e.fye_source ? `決算期末月の出所: ${e.fye_source}${x.fye_month && e.fye_month && x.fye_month !== e.fye_month ? `（Notion は ${x.fye_month}月 — 不一致）` : ''}` : 'Notion 銘柄マスタ'}>
+                      {(e.fye_month ?? x.fye_month) ? `${e.fye_month ?? x.fye_month}月${!e.fye_month && x.fye_uncertain ? '?' : ''}` : ''}
+                      {x.fye_month && e.fye_month && x.fye_month !== e.fye_month ? <span className="down" style={{ fontSize: 10 }}> ≠N</span> : null}
+                    </td>
                     <td>{x.excel_files || ''}</td>
                     <td className={dirCls(x.auto?.direction)}>{x.auto ? `${x.auto.direction[0]}${x.auto.conviction}` : ''}</td>
                     <td className="l muted">{x.gics_sub || ''}</td>

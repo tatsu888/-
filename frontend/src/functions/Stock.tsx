@@ -88,13 +88,103 @@ function Margin({ m, symbol }: { m: any; symbol: string }) {
   );
 }
 
+
+const CHECK_PRE = ['会社計画・コンセンサスの確認', '注目点（数量・ASP・マージン）を書く', '前回からの変化点'];
+const CHECK_POST = ['結果 vs 予想（サプライズ）', 'ガイダンスの変化', '株価の反応（翌日）', '評点表（SCORE）を更新'];
+const stateCls = (s?: string) => (s === '決算待ち' ? 'yellow' : s === '期中' ? 'amber' : 'muted');
+
+/** Quarter pages of one company — the terminal's earnings calendar is the system of record (not Notion). */
+function Quarters({ ticker }: { ticker: string }) {
+  const { toast } = useTerminal();
+  const r = useAsync(() => api.get<any>(`/earnings/${ticker}`), [ticker]);
+  const [view, setView] = useState<any>(null);   // latest server response (PUT returns the company view)
+  const [sel, setSel] = useState<string | null>(null);
+  const [pin, setPin] = useState('');
+  const [notes, setNotes] = useState<string | null>(null);
+  const [fye, setFye] = useState('');
+  const [all, setAll] = useState(false);
+  const d = view ?? r.data;
+  const qs: any[] = d?.quarters || [];
+  const q = qs.find((x) => x.id === (sel || d?.next?.id)) || qs.find((x) => x.state === '期中') || qs[qs.length - 1];
+  const call = async (fn: () => Promise<any>) => { try { setView(await fn()); } catch (e: any) { toast(e.message); } };
+  const put = (body: any) => call(() => api.put(`/earnings/${ticker}/${q.id}`, body));
+  const patch = (fields: any) => setView({ ...d, quarters: qs.map((x) => (x.id === q.id ? { ...x, ...fields } : x)) });
+  const chk = q?.checklist || {};
+  const qe = q?.earnings || {};
+  const idx = q ? qs.indexOf(q) : 0;
+  const shown = all ? qs : qs.filter((_, i) => Math.abs(i - idx) <= 4);
+  return (
+    <div className="box" style={{ margin: 6 }}>
+      <h4>四半期ページ（決算カレンダー — 正本はターミナル）</h4>
+      {r.loading && !d && <Loading />}
+      <ErrorBox error={r.error} />
+      {d && !qs.length && <div className="pad muted">四半期がまだない — COV の「決算日を更新」で作成（決算期末月が必要）</div>}
+      {d && (
+        <div className="pad muted" style={{ fontSize: 11 }}>
+          決算期末 <span className="amber">{d.company?.fye_month ?? '—'}月</span>（{d.company?.fye_source || '不明'}）· FY 表記 {d.convention === 'end' ? '決算期の年（標準）' : 'ATLAS（開始年+1）'}
+          <span style={{ marginLeft: 6, whiteSpace: 'nowrap' }}>
+            <input className="inp num" style={{ width: 36 }} value={fye} placeholder="月" onChange={(e) => setFye(e.target.value.replace(/[^0-9]/g, ''))} />
+            <button className="tb mini" disabled={!fye} onClick={() => call(() => api.put(`/earnings/${ticker}/fye`, { month: +fye })).then(() => setFye(''))}>決算期末月を修正</button>
+          </span>
+        </div>
+      )}
+      {q && (
+        <div className="pad" style={{ borderBottom: '1px solid #222' }}>
+          <div><span className="amber" style={{ fontSize: 14 }}>{q.label}</span> <span>{q.label_ja}</span> <span className={stateCls(q.state)}>［{q.state}］</span></div>
+          <div className="muted" style={{ fontSize: 11 }}>期間 {q.period_start} 〜 {q.period_end}</div>
+          <div>決算発表 <span className={qe.status === '推定' ? 'muted' : ''}>{qe.date || '—'}</span> {qe.status ? <span className={`badge st-${qe.status}`}>{qe.status}</span> : null} <span className="muted" style={{ fontSize: 11 }}>{qe.source || ''}</span></div>
+          {(q.candidates || []).length > 0 && <div className="muted" style={{ fontSize: 10 }}>候補: {q.candidates.map((c: any) => `${c.date} ${c.status}（${c.source}）`).join(' / ')}</div>}
+          <div className="toolbar">
+            <input className="inp" type="date" value={pin} onChange={(e) => setPin(e.target.value)} />
+            <button className="tb mini" disabled={!pin} onClick={() => put({ earnings_date: pin }).then(() => setPin(''))}>手入力で固定</button>
+            {qe.status === '手入力' && <button className="tb mini" onClick={() => put({ earnings_date: '' })}>固定を解除</button>}
+            <button className="tb mini" onClick={async () => { try { const x = await api.post<any>(`/earnings/${ticker}/${q.id}/folder`, {}); toast(x.path); } catch (e: any) { toast(e.message); } }}>📁 四半期フォルダ</button>
+          </div>
+          <div className="trin-split" style={{ fontSize: 11 }}>
+            {([['決算前', CHECK_PRE], ['決算後', CHECK_POST]] as const).map(([t, items]) => (
+              <div key={t} style={{ flex: 1 }}><div className="muted">{t}</div>
+                {items.map((it) => (
+                  <label key={it} style={{ display: 'block', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!chk[it]} onChange={(e) => { const next = { ...chk, [it]: e.target.checked }; patch({ checklist: next }); put({ checklist: next }); }} /> {it}
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+          <textarea className="inp" style={{ width: '100%', height: 64, marginTop: 4, boxSizing: 'border-box' }} value={notes ?? q.notes ?? ''}
+            placeholder="この四半期のメモ（注目点・結果・ガイダンス）" onChange={(e) => setNotes(e.target.value)} />
+          <button className="tb mini" disabled={notes === null || notes === (q.notes ?? '')} onClick={() => put({ notes }).then(() => setNotes(null))}>メモを保存</button>
+          {notes !== null && notes !== (q.notes ?? '') && <span className="yellow" style={{ fontSize: 10 }}> 未保存</span>}
+        </div>
+      )}
+      {qs.length > 0 && (
+        <>
+          <table className="t nowrap" style={{ fontSize: 11 }}><tbody>{[...shown].reverse().map((x) => {
+            const e = x.earnings || {};
+            return (
+              <tr key={x.id} className={q?.id === x.id ? 'sel' : ''} style={{ cursor: 'pointer' }} title={x.label_ja}
+                onClick={() => { setSel(x.id); setNotes(null); setPin(''); }}>
+                <td className="l amber">{x.label}</td>
+                <td className={`l ${stateCls(x.state)}`}>{x.state}</td>
+                <td className={e.status === '推定' ? 'muted' : ''}>{e.date || ''}</td>
+                <td className="l">{e.status ? <span className={`badge st-${e.status}`}>{e.status}</span> : null}{x.notes ? ' ✎' : ''}</td>
+              </tr>
+            );
+          })}</tbody></table>
+          <div className="pad"><button className="tb mini" onClick={() => setAll(!all)}>{all ? '前後 4 四半期だけ' : `すべて表示（${qs.length}）`}</button></div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function STK({ symbol }: { symbol: string }) {
   const { run, toast } = useTerminal();
   const r = useAsync(() => api.get<any>(`/stock/${encodeURIComponent(symbol)}/page`), [symbol]);
   const [rep, setRep] = useState<any>(null);
   const d = r.data;
   const cv = d?.coverage;
-  const e = cv?.earnings || {};
+  const e = d?.earnings || {};
   const a = d?.auto;
   const call = async (fn: () => Promise<any>, ok: (x: any) => void) => { try { ok(await fn()); r.reload(); } catch (ex: any) { toast(ex.message); } };
   return (
@@ -147,10 +237,11 @@ export function STK({ symbol }: { symbol: string }) {
                 {d.chip.crowding?.days_of_volume != null && <div className="muted">保有日数 {fmtNum(d.chip.crowding.days_of_volume, 1)}</div>}
               </div> : <div className="pad muted">—</div>}
             </div>
+            {cv && <Quarters key={cv.ticker} ticker={cv.ticker} />}
             <div className="box" style={{ margin: 6 }}>
               <h4>決算・書き起こし</h4>
               <div className="pad">
-                <div>次回 <span className={e.days != null && e.days <= 14 ? 'yellow' : ''}>{e.next || '—'}</span> {e.next_title || ''} {e.days != null ? <span className="muted">（あと {e.days} 日）</span> : null}</div>
+                <div>次回 <span className={e.days != null && e.days <= 14 ? 'yellow' : ''}>{e.next || '—'}</span> {e.next_title || ''} {e.next_status ? <span className={`badge st-${e.next_status}`}>{e.next_status}</span> : null} {e.days != null ? <span className="muted">（あと {e.days} 日）</span> : null}</div>
                 <div className="muted">前回 {e.last || '—'} {e.last_title || ''}</div>
                 {d.transcript ? <div>TXT {d.transcript.period}: tone {fmtNum(d.transcript.net_tone, 2)} · 言語変化 {fmtNum(d.transcript.change_score, 3)} · 回避度 {fmtNum(d.transcript.evasiveness, 2)} <button className="tb mini" onClick={() => run('TXT', symbol)}>TXT</button></div>
                   : <div className="muted">書き起こしなし <button className="tb mini" onClick={() => run('TXT', symbol)}>TXT</button></div>}

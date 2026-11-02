@@ -241,3 +241,11 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .hbar2 { position: relative; height: 10px; background: #111; }
 .hbar2::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #444; }
 .hbar2 > span { position: absolute; top: 0; height: 100%; display: block; }
+
+/* earnings status badges (scoped: the DEMO / LIVE badges keep their own style) */
+.badge[class*='st-'] { font-size: 9px; font-weight: 400; padding: 0 3px; border: 1px solid #444; border-radius: 2px; margin-left: 2px; }
+.badge.st-確定 { color: #2fd17a; border-color: #2fd17a; }
+.badge.st-予定 { color: #59e3ff; border-color: #59e3ff; }
+.badge.st-推定 { color: #888; border-color: #555; }
+.badge.st-手入力 { color: #ffd84a; border-color: #ffd84a; }
+.badge.st-発表済 { color: #aaa; border-color: #666; }

@@ -165,6 +165,9 @@ async def stock_page(symbol: str, source: str | None = None):
     cov = state()
     meta = coverage_meta().get(symbol)
     out: dict[str, Any] = {"symbol": symbol, "coverage": meta, "page": (cov["pages"].get(meta["ticker"]) if meta else None)}
+    if meta:
+        from .api_earnings import summary as earn_summary
+        out["earnings"] = earn_summary(meta["ticker"])
     series, err = await _many([symbol], "1D", 800, source)
     errors.update(err)
     bars = series.get(symbol) or []

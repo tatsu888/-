@@ -111,12 +111,12 @@ async def coverage_list():
         pass
     today = dt.date.today()
     out = []
+    from .api_earnings import load as earn_load, summary as earn_summary
+    ecal = earn_load()
     for it in cov["items"]:
         pat = re.compile(rf"(?<![A-Za-z0-9]){re.escape(it['ticker'])}(?![A-Za-z0-9])", re.I)
         nfiles = sum(1 for f in files if pat.search(f["path"])) + len(manual.get(it["symbol"], []))
-        e = dict(it.get("earnings") or {})
-        if e.get("next"):
-            e["days"] = (dt.date.fromisoformat(e["next"]) - today).days
+        e = earn_summary(it["ticker"], ecal) or {}
         a = snap.get(it["symbol"])
         out.append({**it, "earnings": e, "folder": str(mk[it["ticker"]].relative_to(root)) if it["ticker"] in mk and root in mk[it["ticker"]].parents else None,
                     "excel_files": nfiles, "page": cov["pages"].get(it["ticker"]),
@@ -175,41 +175,13 @@ async def sync():
 # ---- earnings ------------------------------------------------------------------------------------
 @router.post("/earnings/refresh")
 async def earnings_refresh():
-    cov = state()
-    syms = [x["symbol"] for x in cov["items"]]
-    if not syms:
+    """Mechanical fill of earnings dates in the independent calendar (JPX → TradingView → estimates)."""
+    from .api_earnings import load, refresh
+
+    if not state()["items"]:
         raise HTTPException(400, "カバレッジが空（SYNC FROM NOTION）")
-    try:
-        scan = await S.web.scan_symbols(syms, EARN_COLS, ["description", "earnings_release_next_date"])
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"スキャナーから決算日を取得できない: {e} — 手入力は PUT /api/coverage/<ticker>/earnings") from e
-    today = dt.date.today()
-    n = 0
-    for it in cov["items"]:
-        sc = scan.get(it["symbol"]) or {}
-        nxt, last = C.to_date(sc.get("earnings_release_next_date")), C.to_date(sc.get("earnings_release_date"))
-        if not nxt and not last:
-            continue
-        e = {**(it.get("earnings") or {}), "source": "TradingView スキャナー", "updated": today.isoformat()}
-        if nxt and not (it.get("earnings") or {}).get("manual"):
-            e["next"] = nxt.isoformat()
-        if last:
-            e["last"] = last.isoformat()
-        _titles(it, e, today)
-        it["earnings"] = e
-        n += 1
-    save(cov)
-    return {"updated": n, "of": len(syms)}
-
-
-def _titles(it: dict[str, Any], e: dict[str, Any], today: dt.date) -> None:
-    fye = it.get("fye_month")
-    if not fye:
-        return
-    for k in ("next", "last"):
-        if e.get(k):
-            q = C.reported_quarter(dt.date.fromisoformat(e[k]), fye, today)
-            e[f"{k}_title"], e[f"{k}_title_base"] = q["title"], q["title_base"]
+    res = await refresh(load())
+    return {"updated": res["companies"], "of": len(state()["items"]), **res}
 
 
 class EarnManual(BaseModel):
@@ -218,31 +190,36 @@ class EarnManual(BaseModel):
 
 @router.put("/{ticker}/earnings")
 async def earnings_manual(ticker: str, req: EarnManual):
+    """Pin a date by hand: stored in the independent calendar on the quarter it reports (never overwritten)."""
+    from . import earnings as E
+    from .api_earnings import load, refresh, save, summary
+
     cov = state()
     it = _item(cov, ticker)
     d = C.to_date(req.next)
     if not d:
         raise HTTPException(400, "YYYY-MM-DD")
-    e = {**(it.get("earnings") or {}), "next": d.isoformat(), "manual": True, "source": "手入力", "updated": dt.date.today().isoformat()}
-    _titles(it, e, dt.date.today())
-    it["earnings"] = e
-    save(cov)
-    return e
+    c = load()
+    if it["ticker"] not in c["quarters"]:
+        await refresh(c, use_jpx=False, use_tv=False, tickers=[it["ticker"]])
+        c = load()
+    fye = (c["companies"].get(it["ticker"]) or {}).get("fye_month") or it.get("fye_month")
+    if not fye:
+        raise HTTPException(400, "決算期末月が不明（PUT /api/earnings/<ticker>/fye で設定）")
+    hit = E.quarter_for_release(d, fye, None, c["config"].get("convention", "end"))
+    q = (c["quarters"].get(it["ticker"]) or {}).get(E.qid(hit[0], hit[1])) if hit else None
+    if not q:
+        raise HTTPException(400, "この日付に対応する四半期がない")
+    q["earnings"] = {"date": d.isoformat(), "status": "手入力", "source": "手入力", "fetched": dt.datetime.now().isoformat(timespec="seconds")}
+    save(c)
+    s = summary(it["ticker"]) or {}
+    return {**s, "next_title_base": q["label"], "pinned": q["id"]}
 
 
 @router.get("/calendar")
 async def calendar(days: int = 90):
-    today = dt.date.today()
-    rows = []
-    for it in state()["items"]:
-        e = it.get("earnings") or {}
-        if e.get("next"):
-            d = (dt.date.fromisoformat(e["next"]) - today).days
-            if -3 <= d <= days:
-                rows.append({"ticker": it["ticker"], "name": it.get("name"), "date": e["next"], "days": d,
-                             "title": e.get("next_title"), "gics_group": it.get("gics_group")})
-    rows.sort(key=lambda r: (r["date"], r["ticker"]))
-    return {"rows": rows}
+    from .api_earnings import calendar_ep
+    return await calendar_ep(days)
 
 
 class NotionEarnReq(BaseModel):
@@ -256,14 +233,20 @@ class NotionEarnReq(BaseModel):
 
 @router.post("/notion/earnings")
 async def notion_earnings(req: NotionEarnReq):
-    """Write the next earnings date to Notion: the 銘柄マスタ row (次回決算日 / 次回決算期) and a quarter page
-    '<FY> <n>Q' under the company page (only when no page for that quarter exists yet)."""
+    """OPTIONAL export (not the system of record — the terminal's earnings calendar is). Writes the next earnings
+    date to Notion: the 銘柄マスタ row and a quarter page under the company page (only when none exists yet)."""
     cov = state()
     today = dt.date.today()
     want = {t.split(":")[-1].upper() for t in req.tickers} if req.tickers else None
     plan = []
+    from .api_earnings import load as earn_load, summary as earn_summary
+    ecal = earn_load()
+    atlas = ecal["config"].get("convention", "end") == "start_plus_1"
     for it in cov["items"]:
-        e = it.get("earnings") or {}
+        e = earn_summary(it["ticker"], ecal) or {}
+        base = e.get("next_title")
+        ended = bool(e.get("next_period_end")) and e["next_period_end"] < today.isoformat()
+        e["next_title_base"], e["next_title"] = base, (base + (" ■" if ended else "") if base else None)   # ATLAS page title style
         if want and it["ticker"] not in want:
             continue
         if not e.get("next"):
@@ -272,8 +255,10 @@ async def notion_earnings(req: NotionEarnReq):
         if not want and not (-3 <= days <= req.days_ahead):
             continue
         page = cov["pages"].get(it["ticker"])
-        plan.append({"ticker": it["ticker"], "name": it.get("name"), "date": e["next"], "days": days,
-                     "title": e.get("next_title"), "title_base": e.get("next_title_base"),
+        fye = e.get("fye_month") or it.get("fye_month")
+        plan.append({"ticker": it["ticker"], "name": it.get("name"), "date": e["next"], "days": days, "status": e.get("next_status"),
+                     "source": e.get("next_source"), "title": e.get("next_title"), "title_base": e.get("next_title_base"),
+                     "note": "12月決算: ATLAS の既存ページと FY が 1 年ずれる（標準の表記）" if fye == 12 and not atlas else None,
                      "page": page["id"] if page else None, "master": it.get("master_page_id"),
                      "page_action": ("create?" if page and e.get("next_title") else "決算期末月なし" if page else "個社ページなし") if req.create_pages else "skip",
                      "master_action": ("update" if it.get("master_page_id") else "行なし") if req.update_master else "skip"})
@@ -308,7 +293,7 @@ async def notion_earnings(req: NotionEarnReq):
                         p["page_action"] = f"exists ({hit['title']})"
                         continue
                     body = [{"object": "block", "type": "callout", "callout": {
-                        "rich_text": [{"type": "text", "text": {"content": f"決算発表予定日: {p['date']}（{(next(x for x in cov['items'] if x['ticker'] == p['ticker']).get('earnings') or {}).get('source', '')}、{today.isoformat()} 取得）"}}],
+                        "rich_text": [{"type": "text", "text": {"content": f"決算発表日: {p['date']}（{p.get('status') or ''}・{p.get('source') or ''}、{today.isoformat()} ターミナルの決算カレンダーより）"}}],
                         "icon": {"type": "emoji", "emoji": "📅"}}}]
                     np = await nc.create_page(p["page"], p["title"], body)
                     p["page_action"] = "created"
@@ -513,7 +498,8 @@ async def report(ticker: str, req: ReportReq):
             margin = stock_analysis(ms, series.get(sym) or [])
     except Exception as e:  # noqa: BLE001
         errors["margin"] = str(e)
-    ctx = {"item": it, "scan": scan, "perf": perf, "earnings": it.get("earnings"), "auto_row": snap_rows.get(sym), "margin": margin,
+    from .api_earnings import summary as earn_summary
+    ctx = {"item": it, "scan": scan, "perf": perf, "earnings": earn_summary(it["ticker"]) or it.get("earnings"), "auto_row": snap_rows.get(sym), "margin": margin,
            "scorecard": cards[-1] if cards else None, "xray": xr, "chip": chip, "peers": peers, "transcript": tr, "themes": themes,
            "generated_at": dt.datetime.now().isoformat(timespec="seconds"), "source": req.source or S.registry.active_name}
     rep = C.build_report(ctx)

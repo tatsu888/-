@@ -12,22 +12,22 @@ from app.notion_api import NotionClient, parse_master_row
 D = dt.date
 
 
-# ---------------- fiscal quarters (checked against existing ATLAS pages)
-def test_quarter_labels_follow_atlas_convention():
+# ---------------- fiscal quarters: standard 決算期 naming (default) and the ATLAS-page labels (option)
+def test_quarter_labels_standard_and_atlas_option():
     today = D(2026, 11, 2)
-    # SUMCO (12月決算): 2026-02-17 NOMURA meeting sits in "FY2026 4Q ■"; Jan–Mar 2026 is "FY2027 1Q ■"
-    assert C.reported_quarter(D(2026, 2, 13), 12, today)["title"] == "FY2026 4Q ■"
-    assert C.reported_quarter(D(2026, 5, 12), 12, today)["title"] == "FY2027 1Q ■"
-    # アドバンテスト (3月決算): results on 2026-10-28 report Jul–Sep 2026 = FY2027 2Q
+    # SUMCO (12月決算): results on 2026-02-13 report Oct–Dec 2025 = 2025年12月期 本決算 = FY2025 4Q (standard)
+    assert C.reported_quarter(D(2026, 2, 13), 12, today)["title"] == "FY2025 4Q ■"
+    assert C.reported_quarter(D(2026, 5, 12), 12, today)["title"] == "FY2026 1Q ■"
+    # …the ATLAS pages in Notion label the same quarters FY2026 4Q / FY2027 1Q (start year + 1)
+    assert C.reported_quarter(D(2026, 2, 13), 12, today, "start_plus_1")["title"] == "FY2026 4Q ■"
+    assert C.reported_quarter(D(2026, 5, 12), 12, today, "start_plus_1")["title"] == "FY2027 1Q ■"
+    # アドバンテスト (3月決算): both conventions agree — results on 2026-10-28 report Jul–Sep 2026 = FY2027 2Q
     q = C.reported_quarter(D(2026, 10, 28), 3, today)
     assert q["title"] == "FY2027 2Q ■" and q["quarter_end"] == "2026-09-30" and q["title_base"] == "FY2027 2Q"
-    # HUMAN MADE (1月決算): May–Jul 2026 = FY2027 2Q
-    assert C.reported_quarter(D(2026, 9, 10), 1, today)["title"] == "FY2027 2Q ■"
-    # a quarter that has not ended yet carries no ■
-    assert C.reported_quarter(D(2027, 1, 30), 3, today)["title"] == "FY2027 3Q"
+    assert C.reported_quarter(D(2026, 9, 10), 1, today)["title"] == "FY2027 2Q ■"      # HUMAN MADE (1月決算)
+    assert C.reported_quarter(D(2027, 1, 30), 3, today)["title"] == "FY2027 3Q"        # not ended yet → no ■
     assert C.quarter_of(D(2027, 3, 31), 3) == (2027, 4)
     assert C.label(2027, 3, False) == "FY2027 3Q"
-    # 7 days after quarter end is too early → previous quarter
     assert C.last_quarter_end(D(2026, 10, 3), 3) == D(2026, 6, 30)
 
 
@@ -152,6 +152,8 @@ def test_coverage_api(tmp_path, monkeypatch):
     from app import api_coverage
     from app.main import app
 
+    from app.api_earnings import cal_path
+    cal_path().unlink(missing_ok=True)   # fresh earnings calendar for this test
     log = []
     monkeypatch.setattr(api_coverage, "NotionClient", lambda *a, **k: client(log))
     monkeypatch.setenv("NOTION_TOKEN", "t")
@@ -177,10 +179,14 @@ def test_coverage_api(tmp_path, monkeypatch):
         assert by["3436"]["page_action"] == "created"  # the mocked SUMCO page only has "FY2027 2Q ■"
         created = [x for x in log if x[0] == "POST" and x[1] == "/v1/pages"]
         titles = {x[2]["properties"]["title"]["title"][0]["text"]["content"] for x in created}
-        assert titles == {C.reported_quarter(d1, 3)["title"], C.reported_quarter(d2, 12)["title"]}
+        cov_items = {x["ticker"]: x for x in c.get("/api/coverage").json()["items"]}
+        nxt = {t: x["earnings"]["next_title"] for t, x in cov_items.items()}
+        assert titles == {nxt["6857"] + " ■", nxt["3436"] + " ■"}   # what the calendar says; the quarters have ended → ■
+        assert by["3436"]["note"] and not by["6857"]["note"]          # 12月決算: FY differs from the ATLAS pages
         assert any(x[0] == "PATCH" and x[1] == "/v1/databases/DB" for x in log)
-        upd = next(x for x in log if x[0] == "PATCH" and x[1] == "/v1/pages/R1")
-        assert upd[2]["properties"]["次回決算日"]["date"]["start"] == d1.isoformat()
+        upd = next(x for x in log if x[0] == "PATCH" and x[1] == "/v1/pages/R1")       # R1 = 6857 in the mocked 銘柄マスタ
+        assert upd[2]["properties"]["次回決算日"]["date"]["start"] == cov_items["6857"]["earnings"]["next"] == d1.isoformat()
+        assert upd[2]["properties"]["次回決算期"]["rich_text"][0]["text"]["content"] == nxt["6857"]
         # folders: dry run, apply, then switch layout (move)
         f = c.post("/api/coverage/folders", json={"apply": False}).json()
         assert f["summary"]["create"] == 2 and not (tmp_path / "Coverage").exists()
@@ -198,5 +204,6 @@ def test_coverage_api(tmp_path, monkeypatch):
         r = c.post("/api/coverage/6857/report", json={"to_notion": True}).json()
         assert Path(r["path"]).exists() and r["path"].endswith("_6857_ファンダメンタル.md")
         assert "## 概要" in r["markdown"] and r["notion_url"] == "https://notion.so/NEW"
-        cal = c.get("/api/coverage/calendar", params={"days": 200}).json()
-        assert [x["ticker"] for x in cal["rows"]] == ["6857", "3436"]
+        cal = c.get("/api/coverage/calendar", params={"days": 200}).json()["rows"]
+        assert {x["ticker"] for x in cal} == {"6857", "3436"} and [x["date"] for x in cal] == sorted(x["date"] for x in cal)
+        assert {x["status"] for x in cal} <= {"確定", "予定", "推定", "手入力"}

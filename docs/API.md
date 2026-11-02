@@ -113,7 +113,21 @@
 
 ## カバレッジ（/api/coverage）— [COVERAGE.md](COVERAGE.md)
 
-書き込み系（`/notion/earnings`、`/folders`）は `apply: false` で計画だけを返す（dry run）。
+書き込み系（`/notion/earnings`、`/folders`）は `apply: false` で計画だけを返す（dry run）。`/notion/earnings` は任意の書き出しで、決算の正本は下の決算カレンダー。
+
+## 決算カレンダー（/api/earnings）— [EARNINGS.md](EARNINGS.md)
+
+| Method | Path | 説明 |
+|---|---|---|
+| POST | /refresh `{jpx, tradingview, tickers}` | 次回決算日を機械的に埋める（手入力 > JPX 確定 > TradingView > 推定） |
+| POST | /jpx/import（multipart `file`） | JPX 決算発表予定日一覧の xlsx を手動で取り込み |
+| GET | /calendar?days | 今後の決算（状態・出所つき） |
+| GET | /log?limit | 変更・手入力・Notion との不一致の記録 |
+| GET / PUT | /config | `convention`（`end` 標準／`start_plus_1` ATLAS）、`jpx_index`、`auto` |
+| GET | /{ticker} | 会社（決算期末月と出所）と四半期ページ、次回・前回 |
+| PUT | /{ticker}/fye `{month}` | 決算期末月を手入力 |
+| PUT | /{ticker}/{qid} `{earnings_date, notes, checklist}` | 四半期ページ：日付の固定（`""` で解除）・メモ・チェックリスト |
+| POST | /{ticker}/{qid}/folder | 四半期フォルダ（`<銘柄フォルダ>/quarters/FY2027_2Q/`） |
 
 ## 分析の拡張（/api/insight）
 
