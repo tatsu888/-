@@ -29,3 +29,4 @@
 |---|---|---|
 | R17 | 普段は Windows を使っている | Windows を前提に設計：`scripts\setup.ps1` で xlwings を標準でインストール、COM の呼び出しは専用スレッド、ロック時のエラーメッセージ |
 | R18 | Excel について、編集も HTML から行えるほうがやりやすい | XLS に EDIT モードを追加（既定）。入力するとそのまま保存（Windows では Excel 本体経由で劣化なし）。UNDO（Ctrl+Z）、Excel と同じキー操作、数式バーでの編集、What-if の結果をファイルへ反映する機能。`TERMINAL_EXCEL_WRITE` の既定を `auto` に変更 |
+| R19 | 他にも、あった方が良い機能を付け足していってほしい | ヘッジファンドのアナリストの日常業務を基準に選定して追加：BETA、SPRD、SEAS、EVT、RV、OV、EARN、PORT の RISK（VaR、ストレス、為替換算）、ワークスペース、コマンド履歴、XLS の範囲コピー・貼り付け。今後の候補は ROADMAP |

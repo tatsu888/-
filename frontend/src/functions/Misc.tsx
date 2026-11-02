@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { api, store } from '../lib/api';
 import { FUNCTIONS } from '../lib/commands';
 import { useFeedMessages, useQuotes } from '../lib/feed';
-import { cls, fmtNum, fmtPct, fmtPrice, fmtTime, shortSym } from '../lib/format';
+import { cls, fmtNum, fmtPct, fmtPrice, fmtTime, heat, shortSym } from '../lib/format';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { useTerminal } from '../ctx';
 
@@ -120,6 +120,7 @@ export function PORT() {
   useEffect(() => void store.get<Pos[]>('portfolio', []).then(setPos), []);
   useEffect(() => setF((x) => ({ ...x, symbol: security })), [security]);
   const quotes = useQuotes((pos ?? []).map((p) => p.symbol));
+  const [tab, setTab] = useState<'pos' | 'risk'>('pos');
   if (!pos) return <Loading />;
   const save = (p: Pos[]) => (setPos(p), store.set('portfolio', p));
   const rows = pos.map((p) => {
@@ -138,7 +139,12 @@ export function PORT() {
         <input className="inp" style={{ width: 80 }} placeholder="avg cost" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} />
         <button className="tb green" disabled={!f.qty || !f.cost} onClick={() => save([...pos, { id: Math.random().toString(36).slice(2, 10), symbol: f.symbol, qty: +f.qty, cost: +f.cost }])}>ADD</button>
         <span className="muted">P&L in each security's own currency (no FX conversion)</span>
+        <span style={{ flex: 1 }} />
+        <button className={`tb ${tab === 'pos' ? 'on' : ''}`} onClick={() => setTab('pos')}>POSITIONS</button>
+        <button className={`tb ${tab === 'risk' ? 'on' : ''}`} onClick={() => setTab('risk')} disabled={!pos.length}>RISK</button>
       </div>
+      {tab === 'risk' && <PortRisk positions={pos} />}
+      {tab === 'pos' && (
       <table className="t">
         <thead><tr><th className="l">SECURITY</th><th>QTY</th><th>AVG COST</th><th>LAST</th><th>%CHG</th><th>MKT VAL</th><th>WEIGHT</th><th>DAY P&L</th><th>UNREAL P&L</th><th>P&L %</th><th /></tr></thead>
         <tbody>
@@ -162,6 +168,71 @@ export function PORT() {
           </tr>
         </tbody>
       </table>
+      )}
+    </div>
+  );
+}
+
+function PortRisk({ positions }: { positions: Pos[] }) {
+  const [bench, setBench] = useState('SP:SPX');
+  const [lookback, setLookback] = useState(252);
+  const [base, setBase] = useState('USD');
+  const r = useAsync(() => api.post<any>('/analytics/portfolio_risk', { positions: positions.map((p) => ({ symbol: p.symbol, qty: p.qty })), benchmark: bench, lookback, base_currency: base }), [JSON.stringify(positions), bench, lookback, base]);
+  const d = r.data;
+  return (
+    <div>
+      <div className="toolbar">
+        <span className="lbl">BENCHMARK</span>
+        <input className="inp" style={{ width: 110 }} value={bench} onChange={(e) => setBench(e.target.value.toUpperCase())} />
+        <span className="lbl">LOOKBACK</span>
+        <select className="inp" value={lookback} onChange={(e) => setLookback(+e.target.value)}>{[60, 126, 252, 504].map((x) => <option key={x}>{x}</option>)}</select>
+        <span className="lbl">BASE CCY</span>
+        {['USD', 'JPY', 'EUR'].map((c) => <button key={c} className={`tb ${base === c ? 'on' : ''}`} onClick={() => setBase(c)}>{c}</button>)}
+      </div>
+      {r.loading && <Loading />}
+      <ErrorBox error={r.error || d?.error} />
+      {d && !d.error && (
+        <>
+          <div className="kv" style={{ gridTemplateColumns: 'repeat(4, max-content 1fr)' }}>
+            <span>Gross / Net ({d.base_currency})</span><span>{fmtNum(d.gross_exposure, 0)} / {fmtNum(d.net_exposure, 0)} ({fmtPct(d.net_pct_of_gross, 0, false)})</span>
+            <span>Vol (ann.)</span><span className="yellow">{fmtPct(d.vol_annual * 100, 1, false)}</span>
+            <span>VaR 95% 1d</span><span className="down">{fmtPct(d.var_95_1d_pct, 2, false)} ({fmtNum(d.var_95_1d_amount, 0)})</span>
+            <span>VaR 99% 1d</span><span className="down">{fmtPct(d.var_99_1d_pct, 2, false)} ({fmtNum(d.var_99_1d_amount, 0)})</span>
+            <span>ES 95% / 99%</span><span className="down">{fmtPct(d.es_95_1d_pct, 2, false)} / {fmtPct(d.es_99_1d_pct, 2, false)}</span>
+            <span>Beta</span><span>{fmtNum(d.beta, 2)}</span>
+            <span>Max DD (hist.)</span><span className="down">{fmtPct(d.max_drawdown_pct, 1)}</span>
+            <span>Window</span><span className="muted">{d.start} → {d.end} ({d.observations}d)</span>
+          </div>
+          <table className="t">
+            <thead><tr><th className="l">SECURITY</th><th>WEIGHT</th><th>MKT VAL ({d.base_currency})</th><th>VOL</th><th>MARGINAL</th><th>RISK CONTRIB</th></tr></thead>
+            <tbody>
+              {Object.entries(d.positions).sort((a: any, b: any) => b[1].contribution_pct - a[1].contribution_pct).map(([s, x]: any) => (
+                <tr key={s}>
+                  <td className="l sym">{shortSym(s)}</td><td className={cls(x.weight)}>{fmtPct(x.weight * 100, 1)}</td>
+                  <td>{fmtNum(x.market_value, 0)}</td><td>{fmtPct(x.vol_ann * 100, 1, false)}</td>
+                  <td>{fmtPct(x.marginal * 100, 1, false)}</td>
+                  <td style={{ background: heat(x.contribution_pct - 100 / Object.keys(d.positions).length, 30) }}>{fmtPct(x.contribution_pct, 1, false)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {d.stress_worst_benchmark_days && (
+            <>
+              <div className="note">STRESS — portfolio on the 5 worst benchmark days in the window</div>
+              <table className="t">
+                <thead><tr><th className="l">DATE</th><th>BENCHMARK</th><th>PORTFOLIO</th><th>P&L</th></tr></thead>
+                <tbody>
+                  {d.stress_worst_benchmark_days.map((x: any) => (
+                    <tr key={x.date}><td className="l amber">{x.date}</td><td className="down">{fmtPct(x.benchmark_pct)}</td><td className={cls(x.portfolio_pct)}>{fmtPct(x.portfolio_pct)}</td><td className={cls(x.portfolio_amount)}>{fmtNum(x.portfolio_amount, 0)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+          <div className="note">{d.note}</div>
+          {Object.keys(d.errors ?? {}).length > 0 && <div className="note">⚠ {Object.entries(d.errors).map(([k, v]) => `${k}: ${v}`).join(' | ')}</div>}
+        </>
+      )}
     </div>
   );
 }

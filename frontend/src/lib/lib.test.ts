@@ -57,3 +57,18 @@ describe('treemap', () => {
     expect(r.length).toBe(7);
   });
 });
+
+import { bs, impliedVol, normCdf } from './options';
+describe('black-scholes', () => {
+  it('matches textbook values and put-call parity', () => {
+    expect(normCdf(0)).toBeCloseTo(0.5, 7);
+    const p = { S: 100, K: 100, T: 1, r: 0.05, q: 0, sigma: 0.2 };
+    const c = bs({ ...p, type: 'call' });
+    const put = bs({ ...p, type: 'put' });
+    expect(c.price).toBeCloseTo(10.4506, 3); // Hull example
+    expect(put.price).toBeCloseTo(5.5735, 3);
+    expect(c.price - put.price).toBeCloseTo(100 - 100 * Math.exp(-0.05), 6);
+    expect(c.delta).toBeCloseTo(0.6368, 3);
+    expect(impliedVol(c.price, { ...p, type: 'call' })!).toBeCloseTo(0.2, 6);
+  });
+});

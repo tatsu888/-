@@ -154,6 +154,7 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .xl th.rh { position: sticky; left: 0; z-index: 3; min-width: 34px; }
 .xl td.sel { outline: 2px solid #217346; outline-offset: -2px; }
 .xl td.changed { background-image: linear-gradient(rgba(255, 216, 74, 0.55), rgba(255, 216, 74, 0.55)); }
+.xl td.rng { background-image: linear-gradient(rgba(33, 115, 70, 0.2), rgba(33, 115, 70, 0.2)); }
 .xl td.calc { text-decoration: underline dotted #888; }
 .xl td.over { background-image: linear-gradient(rgba(94, 169, 255, 0.45), rgba(94, 169, 255, 0.45)); }
 .xl input { width: 100%; border: 0; outline: 0; background: #fff8d0; color: #000; font: inherit; }

@@ -16,6 +16,25 @@ export function CommandLine() {
   const [sugs, setSugs] = useState<Sug[]>([]);
   const [sel, setSel] = useState(0);
   const ref = useRef<HTMLInputElement>(null);
+  // command history (↑/↓ when no suggestion list is open), persisted per browser
+  const [hist, setHist] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('term.history') ?? '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [hi, setHi] = useState(-1);
+  const remember = (cmd: string) => {
+    const h = [cmd, ...hist.filter((x) => x !== cmd)].slice(0, 50);
+    setHist(h);
+    setHi(-1);
+    try {
+      localStorage.setItem('term.history', JSON.stringify(h));
+    } catch {
+      /* ignore */
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -72,6 +91,7 @@ export function CommandLine() {
       }
     }
     run(p.fn ?? '', sec, p.args);
+    remember(raw.trim().toUpperCase());
     setText('');
     setSugs([]);
   }
@@ -85,6 +105,7 @@ export function CommandLine() {
         onChange={(e) => {
           setText(e.target.value);
           setSel(0);
+          setHi(-1);
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -95,10 +116,19 @@ export function CommandLine() {
             } else submit();
           } else if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setSel((s) => Math.min(s + 1, sugs.length));
+            if (!sugs.length && hi >= 0) {
+              const n = hi - 1;
+              setHi(n);
+              setText(n >= 0 ? hist[n] : '');
+            } else setSel((s) => Math.min(s + 1, sugs.length));
           } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            setSel((s) => Math.max(s - 1, 0));
+            if ((!text || hi >= 0) && hist.length && sel === 0) {
+              const n = Math.min(hi + 1, hist.length - 1);
+              setHi(n);
+              setText(hist[n]);
+              setSugs([]);
+            } else setSel((s) => Math.max(s - 1, 0));
           } else if (e.key === 'Tab' && sugs.length) {
             e.preventDefault();
             setText(sugs[Math.max(sel - 1, 0)].apply);

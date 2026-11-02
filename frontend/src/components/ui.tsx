@@ -116,3 +116,35 @@ export class PanelBoundary extends Component<{ children: ReactNode; resetKey: st
     return this.props.children;
   }
 }
+
+/** Small SVG x/y chart: scatter points and/or a line, optional fitted line y = a + b·x, zero axes. */
+export function XYChart({ points, line, fit, height = 220, xLabel, yLabel, fmt = (v: number) => v.toFixed(2) }: {
+  points?: { x: number; y: number }[]; line?: { x: number; y: number }[]; fit?: { a: number; b: number };
+  height?: number; xLabel?: string; yLabel?: string; fmt?: (v: number) => string;
+}) {
+  const all = [...(points ?? []), ...(line ?? [])];
+  if (!all.length) return null;
+  const W = 520, H = height, P = 34;
+  let x0 = Math.min(...all.map((p) => p.x)), x1 = Math.max(...all.map((p) => p.x));
+  let y0 = Math.min(...all.map((p) => p.y)), y1 = Math.max(...all.map((p) => p.y));
+  if (x0 === x1) (x0 -= 1), (x1 += 1);
+  if (y0 === y1) (y0 -= 1), (y1 += 1);
+  const sx = (x: number) => P + ((x - x0) / (x1 - x0)) * (W - 2 * P);
+  const sy = (y: number) => H - P + -((y - y0) / (y1 - y0)) * (H - 2 * P);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: 720, height: 'auto', display: 'block' }}>
+      <rect x={P} y={P} width={W - 2 * P} height={H - 2 * P} fill="none" stroke="#2a2a2a" />
+      {x0 < 0 && x1 > 0 && <line x1={sx(0)} x2={sx(0)} y1={P} y2={H - P} stroke="#444" />}
+      {y0 < 0 && y1 > 0 && <line x1={P} x2={W - P} y1={sy(0)} y2={sy(0)} stroke="#444" />}
+      {(points ?? []).map((p, i) => <circle key={i} cx={sx(p.x)} cy={sy(p.y)} r={1.8} fill="#ffa028" opacity={0.6} />)}
+      {line && <polyline fill="none" stroke="#59e3ff" strokeWidth={2} points={line.map((p) => `${sx(p.x)},${sy(p.y)}`).join(' ')} />}
+      {fit && <line x1={sx(x0)} y1={sy(fit.a + fit.b * x0)} x2={sx(x1)} y2={sy(fit.a + fit.b * x1)} stroke="#ff6ad5" strokeWidth={2} />}
+      <text x={P} y={H - 8} fill="#8a8a8a" fontSize={10}>{fmt(x0)}</text>
+      <text x={W - P} y={H - 8} fill="#8a8a8a" fontSize={10} textAnchor="end">{fmt(x1)}</text>
+      <text x={4} y={P + 4} fill="#8a8a8a" fontSize={10}>{fmt(y1)}</text>
+      <text x={4} y={H - P} fill="#8a8a8a" fontSize={10}>{fmt(y0)}</text>
+      {xLabel && <text x={W / 2} y={H - 8} fill="#ffa028" fontSize={10} textAnchor="middle">{xLabel}</text>}
+      {yLabel && <text x={P + 4} y={P - 8} fill="#ffa028" fontSize={10}>{yLabel}</text>}
+    </svg>
+  );
+}

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CommandLine } from './components/CommandLine';
 import { Clocks, FKeys, StatusBar, TickerTape } from './components/Chrome';
 import { Ctx } from './ctx';
-import { api } from './lib/api';
+import { api, store } from './lib/api';
 import { FUNCTIONS } from './lib/commands';
 import { feed, useFeedMessages } from './lib/feed';
 import { shortSym } from './lib/format';
@@ -12,6 +12,7 @@ import type { PanelState, Universe } from './lib/types';
 import GP from './functions/GP';
 import { BT, CORR, FACT, LAG } from './functions/Analytics';
 import { ALRT, ECO, HELP, PORT, SRC } from './functions/Misc';
+import { BETA, EARN, EVT, OV, RV, SEAS, SPRD } from './functions/Quant';
 import { ListMonitor, Watchlist } from './functions/Monitor';
 import { MODEL } from './functions/MODEL';
 import { HMAP, MOST } from './functions/Screener';
@@ -53,11 +54,37 @@ export default function App() {
   const [focus, setFocus] = useState<string>('p1');
   const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
   const [provider, setProvider] = useState('');
+  const [workspaces, setWorkspaces] = useState<Record<string, { panels: PanelState[]; layout: number; security: string }>>({});
 
   useEffect(() => {
     api.get<Universe>('/universe').then(setUniverse).catch(() => setUniverse(null));
     api.get<{ active: string }>('/providers').then((r) => setProvider(r.active)).catch(() => undefined);
   }, []);
+  useEffect(() => {
+    store.get<Record<string, any>>('workspaces', {}).then(setWorkspaces);
+  }, []);
+  const wsApi = {
+    names: Object.keys(workspaces),
+    save: (name: string) => {
+      const w = { ...workspaces, [name]: { panels, layout, security } };
+      setWorkspaces(w);
+      store.set('workspaces', w);
+      toast(`workspace saved: ${name}`);
+    },
+    load: (name: string) => {
+      const w = workspaces[name];
+      if (!w) return;
+      setPanels(w.panels);
+      setLayout(w.layout);
+      setSecurityRaw(w.security);
+    },
+    remove: (name: string) => {
+      const w = { ...workspaces };
+      delete w[name];
+      setWorkspaces(w);
+      store.set('workspaces', w);
+    },
+  };
   useEffect(() => save('term.security', security), [security]);
   useEffect(() => save('term.panels', panels), [panels]);
   useEffect(() => save('term.layout', layout), [layout]);
@@ -112,7 +139,7 @@ export default function App() {
           <CommandLine />
           <Clocks />
         </div>
-        <FKeys layout={layout} setLayout={setLayout} />
+        <FKeys layout={layout} setLayout={setLayout} ws={wsApi} />
         <TickerTape />
         <div className={`grid l${layout}`}>
           {visible.map((p) => (
@@ -179,6 +206,13 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'XLS': return <XLS key={symbol} symbol={symbol} args={args} />;
     case 'NOTE': return <NOTE symbol={symbol} />;
     case 'BT': return <BT symbol={symbol} />;
+    case 'BETA': return <BETA symbol={symbol} />;
+    case 'SPRD': return <SPRD symbol={symbol} args={args} />;
+    case 'SEAS': return <SEAS symbol={symbol} />;
+    case 'EVT': return <EVT symbol={symbol} />;
+    case 'RV': return <RV symbol={symbol} args={args} />;
+    case 'OV': return <OV symbol={symbol} />;
+    case 'EARN': return <EARN />;
     case 'W': return <Watchlist />;
     case 'WEI': case 'FX': case 'RATES': case 'CMDTY': case 'CRYP': return <ListMonitor list={fn} />;
     case 'MOST': return <MOST args={args} />;

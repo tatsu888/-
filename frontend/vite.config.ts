@@ -11,5 +11,7 @@ export default defineConfig({
       '/ws': { target: 'ws://localhost:8000', ws: true },
     },
   },
+  // single local app bundle (~530 kB, mostly React + lightweight-charts); code-splitting not needed yet
+  build: { chunkSizeWarningLimit: 1200 },
   test: { environment: 'node' },
 } as any);

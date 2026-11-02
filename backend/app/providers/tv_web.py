@@ -134,6 +134,32 @@ class TVWeb:
             raise ProviderError(f"scanner failed: {e}") from e
         return [{"symbol": row.get("s"), **dict(zip(columns, row.get("d", [])))} for row in data.get("data", [])]
 
+    # ---- many symbols, arbitrary columns (RV peers, earnings calendar) ------
+    async def scan_symbols(self, symbols: list[str], columns: list[str],
+                           fallback: list[str] | None = None) -> dict[str, dict[str, Any]]:
+        """{symbol: {column: value}} — grouped per scanner market. Retries with ``fallback`` columns
+        when the scanner rejects an unknown column."""
+        by_market: dict[str, list[str]] = {}
+        for s in symbols:
+            by_market.setdefault(market_for(s), []).append(s)
+        out: dict[str, dict[str, Any]] = {}
+        errors: list[str] = []
+        for market, syms in by_market.items():
+            for cols in [columns] + ([fallback] if fallback else []):
+                body = {"symbols": {"tickers": syms, "query": {"types": []}}, "columns": cols}
+                try:
+                    r = await self.http.post(SCAN_URL.format(market=market), content=json.dumps(body),
+                                             headers={"Content-Type": "application/json"})
+                    r.raise_for_status()
+                    for row in r.json().get("data") or []:
+                        out[row.get("s")] = dict(zip(cols, row.get("d", [])))
+                    break
+                except Exception as e:  # noqa: BLE001
+                    errors.append(f"{market}: {e}")
+        if not out and errors:
+            raise ProviderError("; ".join(errors[:3]))
+        return out
+
     # ---- fundamentals -----------------------------------------------------
     async def fundamentals(self, symbol: str) -> dict[str, Any]:
         market = market_for(symbol)

@@ -30,9 +30,11 @@
 | ファクター分析 FACT（ETF プロキシ、クロスセクション、セクターローテーション） | ✅ ロジックはテスト済み | ETF の取引所プレフィックスの一部は未検証（§6） |
 | リード・ラグ分析 LAG（ラグ相関、グレンジャー検定、ローリング相関、リーダースキャン、市場ベータ除去、テーマのプリセット 8 種） | ✅ ロジックはテスト済み | |
 | 相関 CORR、バックテスト BT | ✅ | |
+| クオンツ系：BETA、SPRD、SEAS、EVT、RV、OV、EARN、PORT の RISK（基準通貨への換算あり） | ✅ ロジックはテスト済み、SIM で画面確認済み | EARN と RV のスクリーナー列名は未検証 |
+| ワークスペース（画面配置の保存）、コマンド履歴、XLS の範囲選択・コピー・貼り付け | ✅ | |
 | Excel 連携 XLS（自動・手動の紐付け、劣化なしの表示、**HTML からの編集（EDIT）**、UNDO、Excel と同じキー操作、What-if、`=TV()`、Excel で開く、保存の検知と自動再読込） | ✅ | 編集は既定で有効（`auto`）。Windows では xlwings（Excel 本体）経由。**xlwings の実機（Windows + Excel）は未検証**で、制御の流れは偽のモジュールを使ったテストで確認済み。openpyxl 経由はブラウザでの操作まで確認済み |
 | 業績予想ハーネス MODEL（A〜G の 7 層、明細行の作り方 18 種、3 表、DCF／倍率法／DDM／RIM、シナリオ、感応度、モンテカルロ、検証チェック、ハッシュ） | ✅ テスト済み | サンプルの JSON は架空の数値 |
-| テスト | ✅ backend 38 件、frontend 6 件、型チェック、ビルド | `scripts/test.sh` |
+| テスト | ✅ backend 48 件、frontend 7 件、型チェック、ビルド | `scripts/test.sh` |
 
 ## 3. 起動方法
 
@@ -68,6 +70,7 @@ backend/app/
   api_excel.py       /api/excel/*
   api_harness.py     /api/harness/*
   analytics.py       指標、テクニカル判定、相関、パフォーマンス、バックテスト（純 Python）
+  quant.py           BETA、SPRD（共和分）、SEAS、EVT、ポートフォリオリスク（VaR、為替換算）、RV
   factors.py         ファクター分析（ETF プロキシ、クロスセクション）
   leadlag.py         リード・ラグ分析とテーマのプリセット
   stats.py           OLS、F 分布、順位、スピアマン相関
@@ -102,7 +105,7 @@ frontend/src/
   lib/               api, feed（websocket と hooks）, commands, indicators, format, xlsfmt, treemap, types
   components/        CommandLine, Chrome（テープ・キー・ステータス）, LineChart, ui
   functions/         GP, Monitor（W/WEI…）, Screener（MOST/HMAP）, Security（DES/TA/N/NOTE）,
-                     Misc（ECO/ALRT/PORT/SRC/HELP）, Analytics（FACT/LAG/CORR/BT）, XLS, MODEL
+                     Misc（ECO/ALRT/PORT+RISK/SRC/HELP）, Analytics（FACT/LAG/CORR/BT）, Quant（BETA/SPRD/SEAS/EVT/RV/EARN/OV）, XLS, MODEL
 models/examples/     ハーネスのサンプル spec
 scripts/             setup / start / dev / test（sh と ps1）
 docs/                本資料群

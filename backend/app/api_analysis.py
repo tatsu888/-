@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from . import analytics, factors, leadlag
+from . import analytics, factors, leadlag, quant
 from .models import Bar
 from .providers import ProviderError
 from .state import S, interval_or_400, symbols_or_400
@@ -141,3 +141,149 @@ async def leadlag_theme(theme_id: str, residualize: bool = True, max_lag: int = 
         raise HTTPException(404, "unknown theme")
     return {"theme": t, **await leadlag_scan(t["leader"], ",".join(t["followers"]),
                                              t["market"] if residualize else None, max_lag, bars, source)}
+
+
+# ---- quant tools (BETA / SPRD / SEAS / EVT / PORT RISK / RV / EARN) -------
+@router.get("/beta")
+async def beta(symbol: str, benchmark: str = "SP:SPX", interval: str = "1D", bars: int = Query(500, ge=30, le=3000),
+               source: str | None = SOURCE):
+    iv = interval_or_400(interval)
+    series, errors = await _many([symbol, benchmark], iv, bars, source)
+    if len(series) < 2:
+        raise HTTPException(502, f"history unavailable: {errors}")
+    res = quant.beta_regression(series[symbol], series[benchmark], analytics.periods_per_year(iv))
+    return {"symbol": symbol, "benchmark": benchmark, "interval": iv, **res}
+
+
+@router.get("/spread")
+async def spread(a: str, b: str, window: int = Query(60, ge=10, le=500), entry_z: float = 2.0,
+                 bars: int = Query(750, ge=60, le=3000), source: str | None = SOURCE):
+    series, errors = await _many([a, b], "1D", bars, source)
+    if len(series) < 2:
+        raise HTTPException(502, f"history unavailable: {errors}")
+    return {"a": a, "b": b, **quant.pair_spread(series[a], series[b], window, entry_z)}
+
+
+@router.get("/seasonality")
+async def seasonality(symbol: str, bars: int = Query(3000, ge=60, le=5000), source: str | None = SOURCE):
+    data = await S.history(symbol, "1D", bars, source)
+    return {"symbol": symbol, **quant.seasonality(data)}
+
+
+class EventReq(BaseModel):
+    symbol: str
+    benchmark: str = "SP:SPX"
+    events: list[str] = []          # ISO dates; empty -> auto-detect large-move days
+    pre: int = Field(5, ge=0, le=30)
+    post: int = Field(10, ge=1, le=60)
+    est_window: int = Field(120, ge=30, le=500)
+    source: str | None = None
+
+
+@router.post("/event_study")
+async def event_study(req: EventReq):
+    series, errors = await _many([req.symbol, req.benchmark], "1D", 1500, req.source)
+    if len(series) < 2:
+        raise HTTPException(502, f"history unavailable: {errors}")
+    events = req.events or quant.big_move_days(series[req.symbol])
+    res = quant.event_study(series[req.symbol], series[req.benchmark], events, req.pre, req.post, req.est_window)
+    return {"symbol": req.symbol, "benchmark": req.benchmark, "auto_events": not req.events, **res}
+
+
+class RiskReq(BaseModel):
+    positions: list[dict[str, Any]]   # [{symbol, qty}]
+    benchmark: str | None = "SP:SPX"
+    base_currency: str = "USD"
+    lookback: int = Field(252, ge=30, le=2000)
+    source: str | None = None
+
+
+@router.post("/portfolio_risk")
+async def portfolio_risk(req: RiskReq):
+    syms = sorted({p["symbol"] for p in req.positions if p.get("symbol") and p.get("qty")})
+    if not syms:
+        raise HTTPException(400, "no positions")
+    series, errors = await _many(syms + ([req.benchmark] if req.benchmark else []), "1D", req.lookback + 30, req.source)
+    pos = [{"symbol": p["symbol"], "qty": float(p["qty"])} for p in req.positions if p.get("symbol") in series]
+    fx, fx_err = await _fx_to_base(syms, req.base_currency.upper(), req.source)
+    errors.update(fx_err)
+    res = quant.portfolio_risk(pos, {s: series[s] for s in syms if s in series},
+                               series.get(req.benchmark) if req.benchmark else None, req.lookback,
+                               fx, req.base_currency.upper())
+    return {**res, "errors": errors}
+
+
+async def _fx_to_base(symbols: list[str], base: str, source: str | None) -> tuple[dict[str, float], dict[str, str]]:
+    """Latest FX rate (units of base per 1 unit of each symbol's currency) using FX:XXXYYY daily closes."""
+    rates: dict[str, float] = {}
+    errors: dict[str, str] = {}
+    cache: dict[str, float | None] = {base: 1.0}
+    for s in symbols:
+        ccy = quant.currency_of(s)
+        if ccy not in cache:
+            cache[ccy] = None
+            for pair, invert in quant.fx_pairs(ccy, base):
+                try:
+                    bars = await S.history(pair, "1D", 5, source)
+                    if bars:
+                        cache[ccy] = 1 / bars[-1]["close"] if invert else bars[-1]["close"]
+                        break
+                except HTTPException as e:
+                    errors[f"fx {pair}"] = str(e.detail)
+        if cache[ccy] is None:
+            errors[f"fx {ccy}{base}"] = "rate unavailable — value not converted"
+        rates[s] = cache[ccy] or 1.0
+    return rates, errors
+
+
+RV_FIELDS = ["market_cap_basic", "price_earnings_ttm", "price_book_ratio", "enterprise_value_ebitda_ttm",
+             "dividend_yield_recent", "return_on_equity", "gross_margin", "operating_margin", "net_margin",
+             "debt_to_equity", "beta_1_year", "Perf.1M", "Perf.YTD", "Perf.Y"]
+RV_FALLBACK = ["market_cap_basic", "price_earnings_ttm", "price_book_ratio", "dividend_yield_recent",
+               "return_on_equity", "beta_1_year", "Perf.1M", "Perf.Y"]
+
+
+@router.get("/relative_value")
+async def relative_value(symbol: str, peers: str, source: str | None = SOURCE):
+    """Peer comparison: scanner fundamentals (TradingView) + performance from history (any source)."""
+    syms = [symbol] + [p for p in symbols_or_400(peers, 40) if p != symbol]
+    rows: dict[str, dict[str, Any]] = {s: {} for s in syms}
+    errors: dict[str, str] = {}
+    if (source or S.registry.active_name) != "sim":
+        try:
+            scanned = await S.web.scan_symbols(syms, ["description", *RV_FIELDS], ["description", *RV_FALLBACK])
+            for s, d in scanned.items():
+                if s in rows:
+                    rows[s].update(d)
+        except ProviderError as e:
+            errors["scanner"] = str(e)
+    series, herr = await _many(syms, "1D", 400, source)
+    errors.update(herr)
+    for s, b in series.items():
+        perf = analytics.performance(b)
+        rows[s].update({"hist_1M": perf.get("1M"), "hist_YTD": perf.get("YTD"), "hist_1Y": perf.get("1Y"),
+                        "vol_1Y": perf.get("VOL_1Y")})
+    fields = RV_FIELDS + ["hist_1M", "hist_YTD", "hist_1Y", "vol_1Y"]
+    return {"symbol": symbol, "peers": syms, "rows": rows, "stats": quant.peer_stats(rows, symbol, fields),
+            "errors": errors}
+
+
+EARN_COLUMNS = ["description", "earnings_release_next_date", "earnings_release_date",
+                "earnings_per_share_forecast_next_fq", "earnings_per_share_fq", "revenue_forecast_next_fq",
+                "market_cap_basic", "close", "change"]
+EARN_FALLBACK = ["description", "earnings_release_next_date", "earnings_release_date", "close", "change"]
+
+
+@router.get("/earnings")
+async def earnings(symbols: str):
+    """Next / last earnings dates and estimates for a list of symbols (TradingView scanner; columns unverified)."""
+    syms = symbols_or_400(symbols, 150)
+    if S.registry.active_name == "sim":
+        return {"rows": [], "errors": ["earnings calendar disabled in SIM mode"]}
+    try:
+        data = await S.web.scan_symbols(syms, EARN_COLUMNS, EARN_FALLBACK)
+    except ProviderError as e:
+        return {"rows": [], "errors": [str(e)]}
+    rows = [{"symbol": s, **d} for s, d in data.items()]
+    rows.sort(key=lambda r: r.get("earnings_release_next_date") or 9e18)
+    return {"rows": rows, "errors": []}

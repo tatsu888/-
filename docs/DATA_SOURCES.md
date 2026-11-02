@@ -30,6 +30,7 @@ Yahoo への変換は `backend/app/providers/yahoo.py` の `to_yahoo()` で行�
 - `TVC:TOPIX`, `TVC:KOSPI`, `TVC:CAC40`, `TVC:RUT`
 - 日本の ETF：`TSE:1306`, `TSE:1321`, `TSE:1489`, `TSE:1591`, `TSE:2516`
 - リード・ラグのテーマに使う銘柄（`NASDAQ:SOX`, `TSE:3350` など）
+- スクリーナーの列名：決算カレンダー（`earnings_release_next_date`, `earnings_release_date`, `earnings_per_share_forecast_next_fq`, `earnings_per_share_fq`, `revenue_forecast_next_fq`）と、RV の `enterprise_value_ebitda_ttm`, `net_margin`。失敗した場合は、少ない列で再試行します（`api_analysis.py` の `EARN_*`, `RV_*`）
 
 修正先は `universe.py`、`factors.py`、`leadlag.py` です。
 

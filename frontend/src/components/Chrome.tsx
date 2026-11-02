@@ -24,9 +24,16 @@ export function TickerTape() {
   );
 }
 
-const KEYS = ['GP', 'DES', 'TA', 'N', 'XLS', '|', 'W', 'WEI', 'FX', 'RATES', 'CMDTY', 'CRYP', 'MOST', 'HMAP', '|', 'FACT', 'LAG', 'CORR', 'BT', 'MODEL', '|', 'PORT', 'ALRT', 'ECO', 'NOTE', 'SRC', 'HELP'];
+const KEYS = ['GP', 'DES', 'TA', 'N', 'XLS', 'RV', '|', 'W', 'WEI', 'FX', 'RATES', 'CMDTY', 'CRYP', 'MOST', 'HMAP', '|', 'FACT', 'LAG', 'CORR', 'BETA', 'SPRD', 'SEAS', 'EVT', 'BT', 'OV', 'MODEL', '|', 'PORT', 'ALRT', 'ECO', 'EARN', 'NOTE', 'SRC', 'HELP'];
 
-export function FKeys({ layout, setLayout }: { layout: number; setLayout: (n: number) => void }) {
+export interface WorkspaceApi {
+  names: string[];
+  save: (name: string) => void;
+  load: (name: string) => void;
+  remove: (name: string) => void;
+}
+
+export function FKeys({ layout, setLayout, ws }: { layout: number; setLayout: (n: number) => void; ws: WorkspaceApi }) {
   const { run } = useTerminal();
   return (
     <div className="fkeys">
@@ -47,6 +54,26 @@ export function FKeys({ layout, setLayout }: { layout: number; setLayout: (n: nu
           {n}▦
         </button>
       ))}
+      <span className="fkey sep">│</span>
+      <select
+        className="fkey"
+        value=""
+        title="workspaces: saved panel layouts"
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === '__save') {
+            const n = prompt('workspace name (例: Morning, JP Semis, Earnings)');
+            if (n) ws.save(n);
+          } else if (v.startsWith('del:')) {
+            if (confirm(`delete workspace ${v.slice(4)}?`)) ws.remove(v.slice(4));
+          } else if (v) ws.load(v);
+        }}
+      >
+        <option value="">WORKSPACE ▾</option>
+        {ws.names.map((n) => <option key={n} value={n}>{n}</option>)}
+        <option value="__save">+ SAVE CURRENT…</option>
+        {ws.names.map((n) => <option key={'d' + n} value={`del:${n}`}>✕ delete {n}</option>)}
+      </select>
     </div>
   );
 }

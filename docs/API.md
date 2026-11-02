@@ -56,13 +56,25 @@
 | GET | /leadlag/scan?leader&followers=A,B&market&max_lag | 任意の組み合わせでのスキャン |
 | GET | /leadlag/pair?leader&follower&market&max_lag&window | CCF、グレンジャー（両方向）、ローリング相関 |
 
+### クオンツ系（/api/analytics）
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /beta?symbol&benchmark=SP:SPX&interval=1D&bars=500 | 回帰ベータ |
+| GET | /spread?a&b&window=60&entry_z=2 | ペアスプレッドと共和分検定（series.spread, z, ratio を含む） |
+| GET | /seasonality?symbol | 年 × 月のリターン表と月別統計 |
+| POST | /event_study `{symbol, benchmark, events:["YYYY-MM-DD"], pre, post, est_window}` | 日付が空なら大きな値動きの日を自動検出 |
+| POST | /portfolio_risk `{positions:[{symbol, qty}], benchmark, lookback, base_currency}` | VaR・ES、ボラティリティ、ベータ、リスク寄与度、ストレステスト、為替換算 |
+| GET | /relative_value?symbol&peers=A,B | 同業他社のスクリーナー項目、パフォーマンス、中央値、パーセンタイル |
+| GET | /earnings?symbols=A,B | 次回・前回の決算日と予想（SIM では無効） |
+
 ## アラートと保存
 
 | Method | Path | 説明 |
 |---|---|---|
 | GET/POST | /api/alerts | 条件は above, below, cross_up, cross_down, change_pct_above, change_pct_below |
 | PATCH/DELETE | /api/alerts/{id} | 有効・無効の切替、値やメモの変更、削除 |
-| GET/PUT | /api/store/{key} `{"value":...}` | キーは watchlists, portfolio, notes, layout, settings, excel_links, harness_models |
+| GET/PUT | /api/store/{key} `{"value":...}` | キーは watchlists, portfolio, notes, layout, settings, excel_links, harness_models, workspaces |
 
 ## Excel（/api/excel）
 

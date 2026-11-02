@@ -21,6 +21,7 @@ DEFAULTS: dict[str, Any] = {
     "settings": {},
     "excel_links": {},    # symbol -> [excel file ids] (manual links; auto-links come from filenames)
     "harness_models": {}, # name -> forecast harness spec (JSON)
+    "workspaces": {},     # name -> {panels, layout, security} (saved terminal layouts)
 }
 
 ALLOWED_KEYS = tuple(DEFAULTS)

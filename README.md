@@ -4,7 +4,7 @@
 
 - TradingView / Yahoo Finance からデータを取得します（画面から手動で切り替え可能、オフライン用の SIM モードあり）
 - TradingView 型のチャート（足種、時間足、インジケーター、描画、比較）を備えています
-- 分析機能：ファクター分析、タイムラグ（リード・ラグ）分析、相関、バックテスト、テクニカル判定
+- 分析機能：ファクター分析、タイムラグ（リード・ラグ）分析、相関、バックテスト、テクニカル判定、回帰ベータ、ペアスプレッド（共和分）、季節性、イベントスタディ、同業他社比較、オプション計算、ポートフォリオリスク（VaR）、決算カレンダー
 - **Excel 連携**：銘柄を選ぶと、紐付いた Excel モデルを劣化なく表示し、**HTML 上でそのまま編集**できます。Windows では Excel 本体経由で保存するので、グラフやマクロも壊れません。UNDO、What-if（仮の値での再計算）にも対応しています
 - **業績予想ハーネス**：決定的（同じ入力からは同じ結果）で、検証チェックと数値の出所の記録を備えた財務モデルエンジンです。AI のハルシネーション対策として作っています
 
@@ -32,7 +32,7 @@ scripts/start.sh
 
 ![main](docs/img/main.png)
 
-画面例（SIM モード）：[リード・ラグ](docs/img/leadlag.png) · [Excel What-if](docs/img/excel.png) · [ファクター](docs/img/factor.png) · [業績予想ハーネス](docs/img/model.png)
+画面例（SIM モード）：[リード・ラグ](docs/img/leadlag.png) · [Excel What-if](docs/img/excel.png) · [ファクター](docs/img/factor.png) · [業績予想ハーネス](docs/img/model.png) · [ペアスプレッド](docs/img/spread.png) · [ポートフォリオリスク](docs/img/port_risk.png) · [ベータ](docs/img/beta.png)
 
 ```
 [ANALYST TERMINAL][ AAPL GP <GO>                          ][GO][CANCEL]  NY 09:30 LDN 14:30 TKY 22:30
@@ -68,7 +68,7 @@ data/      実行時データ (gitignore): store.json, workbooks/
 scripts/test.sh
 ```
 
-内容は、backend の pytest（38 件）、frontend の tsc、vitest、ビルドです。
+内容は、backend の pytest（48 件）、frontend の tsc、vitest、ビルドです。
 
 ## 注意
 

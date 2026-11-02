@@ -4,7 +4,8 @@
 //   On Windows the server drives the real Excel application via xlwings, so nothing is lost
 //   (charts, macros, pivots…) and if the workbook is open the user's Excel window updates live.
 // WHAT-IF mode: edits are evaluated in memory only (never written) — scenario playground.
-// Keyboard: arrows/Tab move · Enter/F2 edit · type to overwrite · Delete clears · Ctrl+Z undo · Esc cancel.
+// Keyboard: arrows/Tab move · Shift+arrows/click select a range · Enter/F2 edit · type to overwrite ·
+// Delete clears · Ctrl+C / Ctrl+V copy-paste (TSV, works with Excel) · Ctrl+Z undo · Esc cancel.
 // See docs/EXCEL.md.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
@@ -29,6 +30,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
   const [err, setErr] = useState<string>();
   const [sheetIdx, setSheetIdx] = useState(0);
   const [sel, setSel] = useState<string>('A1');
+  const [anchor, setAnchor] = useState<string | null>(null); // range selection: anchor..sel
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [mode, setMode] = useState<'edit' | 'whatif'>('edit');
@@ -154,8 +156,10 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     gridRef.current?.focus();
   }
 
-  function moveSel(dr: number, dc: number) {
+  function moveSel(dr: number, dc: number, extend = false) {
     if (!sheet) return;
+    if (extend) setAnchor((a) => a ?? sel);
+    else setAnchor(null);
     const [r, c] = parseAddr(sel);
     const nr = Math.max(1, Math.min(r + dr, Math.max(sheet.max_row + 50, 1)));
     const nc = Math.max(1, Math.min(c + dc, Math.max(sheet.max_col + 10, 1)));
@@ -167,6 +171,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     const key = `${sheet.name}!${addr}`;
     const cl = sheet.cells[addr];
     setSel(addr);
+    setAnchor(null);
     setEditing(addr);
     setDraft(initial ?? String(!editMode && key in overrides ? overrides[key] : cl?.f ?? cl?.v ?? ''));
   }
@@ -183,17 +188,79 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     const moves: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Tab: [0, e.shiftKey ? -1 : 1] };
     if (moves[k]) {
       e.preventDefault();
-      moveSel(...moves[k]);
+      moveSel(moves[k][0], moves[k][1], e.shiftKey && k !== 'Tab');
     } else if (k === 'Enter' || k === 'F2') {
       e.preventDefault();
       startEdit(sel);
     } else if (k === 'Delete' || k === 'Backspace') {
       e.preventDefault();
-      commit(sel, '', 'none');
+      if (anchor) applyBlock(rangeAddrs().map((row) => row.map(() => '')), 'clear range');
+      else commit(sel, '', 'none');
+    } else if (k === 'Escape') {
+      setAnchor(null);
     } else if (k.length === 1) {
       e.preventDefault();
       startEdit(sel, k); // typing overwrites, like Excel
     }
+  }
+
+  // ---------------------------------------------------------------- ranges, copy & paste
+  function rangeBounds(): [number, number, number, number] {
+    const [r1, c1] = parseAddr(anchor ?? sel), [r2, c2] = parseAddr(sel);
+    return [Math.min(r1, r2), Math.min(c1, c2), Math.max(r1, r2), Math.max(c1, c2)];
+  }
+  function rangeAddrs(): string[][] {
+    const [r1, c1, r2, c2] = rangeBounds();
+    const out: string[][] = [];
+    for (let r = r1; r <= r2; r++) {
+      const row: string[] = [];
+      for (let c = c1; c <= c2; c++) row.push(`${colLetter(c)}${r}`);
+      out.push(row);
+    }
+    return out;
+  }
+  const inRange = (addr: string) => {
+    if (!anchor) return false;
+    const [r, c] = parseAddr(addr), [r1, c1, r2, c2] = rangeBounds();
+    return r >= r1 && r <= r2 && c >= c1 && c <= c2;
+  };
+
+  /** Write a 2-D block of raw inputs starting at the top-left of the selection (EDIT) or as what-if overrides. */
+  function applyBlock(block: string[][], label: string) {
+    if (!sheet || !block.length) return;
+    const [r0, c0] = anchor ? rangeBounds() : parseAddr(sel);
+    const updates: Record<string, string> = {};
+    block.forEach((row, i) => row.forEach((v, j) => (updates[`${colLetter(c0 + j)}${r0 + i}`] = v)));
+    if (editMode) write(sheet.name, updates, `${label} ${Object.keys(updates).length} cells`);
+    else {
+      const ov = { ...overrides };
+      for (const [a, v] of Object.entries(updates)) ov[`${sheet.name}!${a}`] = v;
+      setOverrides(ov);
+      recompute(ov);
+    }
+  }
+
+  function onCopy(e: React.ClipboardEvent) {
+    if (editing || !sheet) return;
+    e.preventDefault();
+    const tsv = rangeAddrs()
+      .map((row) => row.map((a) => {
+        const { v } = shown(a, sheet.cells[a]);
+        return v == null ? '' : String(v);
+      }).join('\t'))
+      .join('\n');
+    e.clipboardData.setData('text/plain', tsv);
+    toast(`copied ${rangeAddrs().flat().length} cell(s)`);
+  }
+
+  function onPaste(e: React.ClipboardEvent) {
+    if (editing || !sheet) return;
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain').replace(/\r/g, '').replace(/\n$/, '');
+    if (!text) return;
+    const block = text.split('\n').map((line) => line.split('\t'));
+    if (block.flat().length > 2000) return toast('paste too large (max 2000 cells)');
+    applyBlock(block, 'paste');
   }
 
   // keep the selected cell visible
@@ -304,7 +371,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
       )}
       {view && (
         <div className="fbar">
-          <span className="addr">{sel}</span>
+          <span className="addr">{anchor ? `${rangeAddrs()[0][0]}:${sel}`.replace(/^(.*):\1$/, '$1') : sel}</span>
           <span className="muted">fx</span>
           <input
             ref={fbarRef}
@@ -336,7 +403,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
         </div>
       )}
       {sheet && (
-        <div ref={gridRef} tabIndex={0} data-own-keys onKeyDown={onGridKey} style={{ flex: 1, overflow: 'auto', background: '#fff', outline: 'none' }}>
+        <div ref={gridRef} tabIndex={0} data-own-keys onKeyDown={onGridKey} onCopy={onCopy} onPaste={onPaste} style={{ flex: 1, overflow: 'auto', background: '#fff', outline: 'none' }}>
           <table className={`xl ${sheet.gridlines ? '' : 'nogrid'}`}>
             <thead>
               <tr>
@@ -376,9 +443,11 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
                           rowSpan={span?.[0]}
                           colSpan={span?.[1]}
                           style={style}
-                          className={`${sel === addr ? 'sel' : ''} ${cls}`}
-                          onClick={() => {
+                          className={`${sel === addr ? 'sel' : ''} ${inRange(addr) ? 'rng' : ''} ${cls}`}
+                          onClick={(e) => {
                             if (editing && editing !== addr) commit(editing, draft, 'none');
+                            if (e.shiftKey) setAnchor((a) => a ?? sel);
+                            else setAnchor(null);
                             setSel(addr);
                             gridRef.current?.focus();
                           }}

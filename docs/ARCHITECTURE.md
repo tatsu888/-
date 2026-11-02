@@ -46,7 +46,7 @@
 |---|---|
 | 新しいデータソース | `providers/base.py` を継承し、`providers/__init__.py` の `PROVIDERS` と `create_provider` に登録 |
 | 新しい画面機能 | `frontend/src/lib/commands.ts` の `FUNCTIONS`、`App.tsx` の `FunctionBody`、`docs/COMMANDS.md` |
-| 新しい分析 API | `api_analysis.py`（ロジックは純関数のモジュールに書き、テストを付ける） |
+| 新しい分析 API | `api_analysis.py`（ロジックは純関数のモジュール `analytics.py`／`quant.py` などに書き、テストを付ける） |
 | 明細行の新しい作り方 | `harness/lines.py` の `METHODS`、`harness/__init__.py` の `CATALOG`、`docs/FORECAST_HARNESS.md` |
 | 新しい検証チェック | `harness/checks.py` |
 | 銘柄リスト | `backend/app/universe.py` |

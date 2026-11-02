@@ -48,3 +48,18 @@
 
 ### 未確認
 - Windows 実機 + Excel での xlwings 経由の書き込み（HANDOFF §7-2）
+
+## 2026-11-02 — Claude Code（機能追加：R19）
+
+### やったこと
+- `backend/app/quant.py`（新規、純 Python）：回帰ベータ、ペアスプレッド（OLS によるヘッジ比率、エングル・グレンジャー検定、半減期、z スコア）、季節性、イベントスタディ（マーケットモデル、CAR、t 値、大きな値動きの日の自動検出）、ポートフォリオリスク（VaR・ES、リスク寄与度、ベータ、ストレステスト、為替換算）、同業他社の統計、通貨の判定と FX ペアの慣行
+- `api_analysis.py`：/beta, /spread, /seasonality, /event_study, /portfolio_risk, /relative_value, /earnings を追加。`tv_web.scan_symbols`（複数銘柄・任意の列、失敗時は少ない列で再試行）
+- フロントエンド：`functions/Quant.tsx`（BETA, SPRD, SEAS, EVT, RV, EARN, OV）、PORT の RISK タブ、`lib/options.ts`（ブラック・ショールズ、IV）、`XYChart`（SVG の散布図と折れ線）、ワークスペース、コマンド履歴、XLS の範囲選択・コピー・貼り付け・範囲消去
+- テスト：backend 48 件（quant の真値の再現、共和分の検出、FX の換算と慣行、エンドポイント）、frontend 7 件（ブラック・ショールズは Hull の例題の値とプットコールパリティで確認）
+
+### 途中で見つけて直した問題
+- ポートフォリオリスクで円とドルを混ぜて合算し、ウェイトが歪んでいた → 基準通貨（USD / JPY / EUR）への換算を追加
+- 換算の通貨ペアの向きが逆だった（JPYUSD を探していた）→ 市場慣行の順序（EURUSD, USDJPY, EURJPY …）を優先するよう修正
+
+### 未確認
+- EARN と RV で使うスクリーナーの列名（実データ）
