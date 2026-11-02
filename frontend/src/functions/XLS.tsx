@@ -14,12 +14,12 @@ import { useFeedMessages } from '../lib/feed';
 import { colLetter, parseAddr, renderValue } from '../lib/xlsfmt';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { useTerminal } from '../ctx';
-import { FormatBar, HistoryPanel, QuickChart, selectionStats } from './XlsTools';
+import { buildConditionalFormats, buildValidations, FormatBar, HistoryPanel, QuickChart, selectionStats, type CfRule } from './XlsTools';
 
-interface Cell { v: any; f?: string; nf?: string; s?: number; calc?: boolean }
+interface Cell { v: any; f?: string; nf?: string; s?: number; calc?: boolean; cm?: string; hl?: string }
 interface Sheet { name: string; state: string; max_row: number; max_col: number; truncated: boolean; merged: string[]; cols: Record<string, { w?: number; hidden?: boolean }>; rows: Record<string, { h?: number; hidden?: boolean }>; cells: Record<string, Cell>; gridlines: boolean; tab_color?: string }
 interface View { id: string; name: string; mtime: number; sheets: Sheet[]; styles: any[]; write_mode: string; write_reason: string; lossy_parts: string[]; engine_filled?: number }
-interface Sheet2 { freeze?: string | null }
+interface Sheet2 { freeze?: string | null; cf?: CfRule[]; validations?: { ranges: string[]; options: unknown[] }[] }
 interface UndoItem { sheet: string; before: Record<string, any>; label: string }
 
 const BORDER: Record<string, string> = { thin: '1px solid #000', medium: '2px solid #000', thick: '3px solid #000', dashed: '1px dashed #000', dotted: '1px dotted #000', double: '3px double #000', hair: '1px solid #999' };
@@ -479,6 +479,12 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     }
     return { r: fr, c: fc, top, left };
   })();
+  const cfStyles = useMemo(
+    () => (sheet ? buildConditionalFormats((sheet as Sheet & Sheet2).cf, (a) => shown(a, sheet.cells[a]).v, parseAddr, colLetter) : {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sheet, overrides, changed, liveVals, excelLive, editMode],
+  );
+  const dropdowns = useMemo(() => (sheet ? buildValidations((sheet as Sheet & Sheet2).validations, parseAddr, colLetter) : {}), [sheet]);
   const stats = sheet ? selectionStats(rangeAddrs().flat().map((a) => shown(a, sheet.cells[a]).v)) : null;
   const chartBlock = sheet && panel.startsWith('chart') ? rangeAddrs().map((row) => row.map((a) => shown(a, sheet.cells[a]).v)) : [];
   const fbarValue = editing === sel ? draft : !editMode && selKey in overrides ? String(overrides[selKey]) : String(cell?.f ?? cell?.v ?? '');
@@ -698,6 +704,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
                       const frozen: React.CSSProperties = {};
                       if (r < frz.r) Object.assign(frozen, { position: 'sticky', top: frz.top[r], zIndex: 2 });
                       if (c < frz.c) Object.assign(frozen, { position: 'sticky', left: frz.left[c], zIndex: r < frz.r ? 3 : 2 });
+                      const cf = cfStyles[addr];
                       const style: React.CSSProperties = {
                         ...frozen, ...(frozen.position && !st.bg ? { background: '#fff' } : {}),
                         minWidth: w, maxWidth: span ? undefined : w, fontWeight: st.b ? 700 : undefined, fontStyle: st.i ? 'italic' : undefined,
@@ -706,6 +713,10 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
                         paddingLeft: st.ind ? st.ind * 9 : undefined, whiteSpace: st.wrap ? 'normal' : undefined,
                         borderTop: BORDER[st.bt], borderBottom: BORDER[st.bb], borderLeft: BORDER[st.bl], borderRight: BORDER[st.br],
                       };
+                      if (cf?.bg) style.background = cf.bg;
+                      if (cf?.color) style.color = cf.color;
+                      if (cf?.bold) style.fontWeight = 700;
+                      if (cf?.bar) style.backgroundImage = `linear-gradient(to right, ${cf.bar.color}99 ${cf.bar.pct}%, transparent ${cf.bar.pct}%)`;
                       return (
                         <td
                           key={c}
@@ -721,9 +732,16 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
                             gridRef.current?.focus();
                           }}
                           onDoubleClick={() => startEdit(addr)}
-                          title={cl?.f ?? undefined}
+                          title={[cl?.f, cl?.cm && `💬 ${cl.cm}`, cl?.hl && `🔗 ${cl.hl}`].filter(Boolean).join('\n') || undefined}
+                          data-cm={cl?.cm ? 1 : undefined}
                         >
-                          {editing === addr ? (
+                          {editing === addr && dropdowns[addr] ? (
+                            <select autoFocus value={draft} onChange={(e) => commit(addr, e.target.value, 'down')} onBlur={() => setEditing(null)}
+                              onKeyDown={(e) => e.key === 'Escape' && (setEditing(null), gridRef.current?.focus())}>
+                              <option value="" />
+                              {dropdowns[addr].map((o) => <option key={o}>{o}</option>)}
+                            </select>
+                          ) : editing === addr ? (
                             <input
                               autoFocus
                               value={draft}
@@ -734,8 +752,14 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
                                 else if (e.key === 'Escape') (setEditing(null), gridRef.current?.focus());
                               }}
                             />
+                          ) : cl?.hl ? (
+                            <a href={cl.hl.startsWith('#') ? undefined : cl.hl} target="_blank" rel="noreferrer" style={{ color: '#0563C1', textDecoration: 'underline' }}
+                              onClick={(e) => { if (!e.ctrlKey && !e.metaKey) e.preventDefault(); }} title="Ctrl+click to open">{rendered.text}</a>
                           ) : (
-                            rendered.text
+                            <>
+                              {rendered.text}
+                              {dropdowns[addr] && sel === addr && <span style={{ float: 'right', color: '#666' }}>▾</span>}
+                            </>
                           )}
                         </td>
                       );

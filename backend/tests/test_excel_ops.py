@@ -172,3 +172,41 @@ def test_excel_ops_api():
         assert c.get("/api/excel/backups", params={"id": "0/ops_api.xlsx"}).json()
         assert c.get("/api/excel/live", params={"id": "0/ops_api.xlsx"}).json()["open"] is False
         assert c.post("/api/excel/new", json={"name": "api_new"}).json()["id"] == "0/api_new.xlsx"
+
+
+def test_view_exports_conditional_formats_validations_comments(lib):
+    from openpyxl.comments import Comment
+    from openpyxl.formatting.rule import CellIsRule, ColorScaleRule
+    from openpyxl.styles import PatternFill
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "M"
+    for i in range(1, 4):
+        ws.cell(row=i, column=1, value=i)
+    ws.conditional_formatting.add("A1:A3", CellIsRule(operator="greaterThan", formula=["1"], fill=PatternFill(bgColor="FFC7CE")))
+    ws.conditional_formatting.add("A1:A3", ColorScaleRule(start_type="min", start_color="F8696B", end_type="max", end_color="63BE7B"))
+    dv = DataValidation(type="list", formula1='"Base,Bull,Bear"')
+    ws.add_data_validation(dv)
+    dv.add("B1")
+    ws["A1"].comment = Comment("from 10-K", "me")
+    ws["A2"].hyperlink = "https://example.com"
+    wb.save(lib.roots[0] / "cf_view.xlsx")
+    sh = lib.view("0/cf_view.xlsx")["sheets"][0]
+    assert sh["cf"][0]["type"] == "cellIs" and sh["cf"][0]["values"] == [1.0] and sh["cf"][0]["fill"] == "FFC7CE"
+    assert sh["cf"][1]["type"] == "colorScale" and sh["cf"][1]["colors"] == ["F8696B", "63BE7B"]
+    assert sh["validations"] == [{"ranges": ["B1"], "options": ["Base", "Bull", "Bear"]}]
+    assert sh["cells"]["A1"]["cm"] == "from 10-K" and sh["cells"]["A2"]["hl"] == "https://example.com"
+
+
+def test_comments_do_not_make_a_workbook_read_only(lib):
+    from openpyxl.comments import Comment
+
+    wb = openpyxl.Workbook()
+    wb.active["A1"] = 1
+    wb.active["A1"].comment = Comment("note", "me")
+    wb.save(lib.roots[0] / "with_comment.xlsx")
+    assert lib.lossy_parts(lib.roots[0] / "with_comment.xlsx") == []
+    lib.write_cells("0/with_comment.xlsx", "Sheet", {"A2": "5"})
+    assert openpyxl.load_workbook(lib.roots[0] / "with_comment.xlsx")["Sheet"]["A1"].comment.text == "note"

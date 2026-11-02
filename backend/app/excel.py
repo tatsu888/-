@@ -41,7 +41,8 @@ MAX_ROWS, MAX_COLS = 3000, 120
 
 # zip parts that openpyxl drops or mangles on save
 LOSSY_PARTS = {
-    "xl/charts/": "charts", "xl/drawings/": "drawings/shapes", "xl/media/": "images",
+    "xl/charts/": "charts", "xl/drawings/drawing": "drawings/shapes", "xl/media/": "images",
+    "xl/ctrlProps/": "form controls", "xl/activeX/": "ActiveX controls",
     "xl/pivotTables/": "pivot tables", "xl/pivotCache/": "pivot caches", "xl/vbaProject.bin": "VBA macros",
     "xl/externalLinks/": "external links", "xl/slicers/": "slicers", "xl/slicerCaches/": "slicers",
     "xl/connections.xml": "data connections", "xl/queryTables/": "query tables",
@@ -231,6 +232,11 @@ class ExcelLibrary:
         except zipfile.BadZipFile:
             return ["not a zip-based workbook"]
         found = {label for prefix, label in LOSSY_PARTS.items() if any(n.startswith(prefix) for n in names)}
+        # legacy VML drawings are how Excel stores cell comments (openpyxl round-trips those);
+        # VML without any comments part means form controls / legacy shapes → lossy
+        if any(n.startswith("xl/drawings/vmlDrawing") for n in names) and not any(
+                n.startswith("xl/comments") for n in names):
+            found.add("legacy VML shapes")
         return sorted(found)
 
     def view(self, file_id: str, quote: F.QuoteLookup | None = None) -> dict[str, Any]:
@@ -283,6 +289,10 @@ class ExcelLibrary:
                             styles[key] = len(style_list)
                             style_list.append(st)
                         entry["s"] = styles[key]
+                    if c.comment is not None and c.comment.text:
+                        entry["cm"] = c.comment.text[:1000]
+                    if c.hyperlink is not None and (c.hyperlink.target or c.hyperlink.location):
+                        entry["hl"] = c.hyperlink.target or f"#{c.hyperlink.location}"
                     cells[c.coordinate] = entry
             cols = {}
             for k, d in ws.column_dimensions.items():
@@ -299,6 +309,8 @@ class ExcelLibrary:
                 "cols": cols, "rows": rows, "cells": cells,
                 "tab_color": _color(ws.sheet_properties.tabColor),
                 "gridlines": ws.sheet_view.showGridLines is not False,
+                "cf": _conditional_formats(ws),
+                "validations": _list_validations(ws),
             })
         return {"sheets": sheets, "styles": style_list}
 
@@ -695,3 +707,75 @@ def _differs(a: Any, b: Any) -> bool:
 
 
 QuoteFn = Callable[[str, str], Any]
+
+
+# ---------------------------------------------------------------------------
+# conditional formatting / data validation export (rendered by the XLS panel)
+# ---------------------------------------------------------------------------
+def _num(x: Any) -> Any:
+    try:
+        return float(str(x).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _conditional_formats(ws) -> list[dict[str, Any]]:
+    """Subset of Excel conditional formatting that can be evaluated in the browser:
+    cellIs (comparison), colorScale (2/3 colours), dataBar. Others are reported as 'unsupported'."""
+    out: list[dict[str, Any]] = []
+    try:
+        items = list(ws.conditional_formatting)
+    except Exception:  # noqa: BLE001
+        return out
+    for cf in items:
+        ranges = [str(r) for r in cf.sqref.ranges] if hasattr(cf.sqref, "ranges") else str(cf.sqref).split()
+        for rule in cf.rules:
+            r: dict[str, Any] = {"ranges": ranges, "type": rule.type, "priority": rule.priority,
+                                 "stop": bool(rule.stopIfTrue)}
+            if rule.type == "cellIs":
+                r["operator"] = rule.operator
+                r["values"] = [_num(f) for f in (rule.formula or [])]
+                dxf = rule.dxf
+                if dxf is not None:
+                    if dxf.fill is not None:
+                        r["fill"] = _color(dxf.fill.bgColor) or _color(dxf.fill.fgColor)
+                    if dxf.font is not None:
+                        r["font"] = _color(dxf.font.color)
+                        r["bold"] = bool(dxf.font.b)
+                if all(v is None for v in r["values"]):
+                    r["type"] = "unsupported"  # formula-based thresholds (e.g. =$B$1) are not evaluated
+            elif rule.type == "colorScale" and rule.colorScale is not None:
+                cs = rule.colorScale
+                r["cfvo"] = [{"type": v.type, "val": _num(v.val)} for v in cs.cfvo]
+                r["colors"] = [_color(c) for c in cs.color]
+            elif rule.type == "dataBar" and rule.dataBar is not None:
+                r["color"] = _color(rule.dataBar.color)
+            else:
+                r["type"] = "unsupported" if rule.type not in ("cellIs", "colorScale", "dataBar") else rule.type
+            out.append(r)
+    return out
+
+
+def _list_validations(ws) -> list[dict[str, Any]]:
+    """List-type data validations with inline options ("A,B,C") or a same-sheet range."""
+    out: list[dict[str, Any]] = []
+    try:
+        dvs = ws.data_validations.dataValidation
+    except Exception:  # noqa: BLE001
+        return out
+    for dv in dvs:
+        if dv.type != "list" or not dv.formula1:
+            continue
+        f1 = dv.formula1.strip()
+        if f1.startswith('"') and f1.endswith('"'):
+            options: list[Any] = [x.strip() for x in f1[1:-1].split(",")]
+        else:
+            ref = f1.lstrip("=").replace("$", "")
+            if "!" in ref:
+                continue  # other-sheet list sources not resolved
+            try:
+                options = [c.value for row in ws[ref] for c in (row if isinstance(row, tuple) else (row,)) if c.value is not None]
+            except Exception:  # noqa: BLE001
+                continue
+        out.append({"ranges": [str(r) for r in dv.sqref.ranges], "options": options})
+    return out

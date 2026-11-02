@@ -72,3 +72,26 @@ describe('black-scholes', () => {
     expect(impliedVol(c.price, { ...p, type: 'call' })!).toBeCloseTo(0.2, 6);
   });
 });
+
+import { buildConditionalFormats, buildValidations, selectionStats } from '../functions/XlsTools';
+import { colLetter, parseAddr } from './xlsfmt';
+describe('excel conditional formatting', () => {
+  const vals: Record<string, number> = { A1: 0, A2: 50, A3: 100, B1: -5, B2: 3 };
+  const v = (a: string) => vals[a];
+  it('cellIs, colorScale and dataBar', () => {
+    const out = buildConditionalFormats([
+      { ranges: ['B1:B2'], type: 'cellIs', operator: 'lessThan', values: [0], fill: 'FFC7CE', font: '9C0006' },
+      { ranges: ['A1:A3'], type: 'colorScale', cfvo: [{ type: 'min', val: null }, { type: 'max', val: null }], colors: ['000000', 'FFFFFF'] },
+      { ranges: ['A1:A3'], type: 'dataBar', color: '638EC6' },
+    ], v, parseAddr, colLetter);
+    expect(out.B1).toMatchObject({ bg: '#FFC7CE', color: '#9C0006' });
+    expect(out.B2).toBeUndefined();
+    expect(out.A1.bg).toBe('#000000');
+    expect(out.A2.bg).toBe('#808080');
+    expect(out.A3.bar?.pct).toBe(100);
+  });
+  it('validations and stats', () => {
+    expect(buildValidations([{ ranges: ['C1:C2'], options: ['Base', 'Bull'] }], parseAddr, colLetter).C2).toEqual(['Base', 'Bull']);
+    expect(selectionStats([1, 2, 'x', null, 3])).toMatchObject({ count: 4, nums: 3, sum: 6, avg: 2, min: 1, max: 3 });
+  });
+});

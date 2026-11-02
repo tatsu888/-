@@ -159,6 +159,9 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .xl td.dep { outline: 2px dashed #1a8f3a; outline-offset: -2px; }
 .xl td.found { background-image: linear-gradient(rgba(255, 160, 40, 0.6), rgba(255, 160, 40, 0.6)); }
 .xl td.xlive { background-image: linear-gradient(rgba(169, 139, 255, 0.35), rgba(169, 139, 255, 0.35)); }
+.xl td[data-cm] { position: relative; }
+.xl td[data-cm]::after { content: ''; position: absolute; top: 0; right: 0; border-left: 6px solid transparent; border-top: 6px solid #d00; }
+.xl select { width: 100%; font: inherit; }
 .xl td.rng { background-image: linear-gradient(rgba(33, 115, 70, 0.2), rgba(33, 115, 70, 0.2)); }
 .xl td.calc { text-decoration: underline dotted #888; }
 .xl td.over { background-image: linear-gradient(rgba(94, 169, 255, 0.45), rgba(94, 169, 255, 0.45)); }

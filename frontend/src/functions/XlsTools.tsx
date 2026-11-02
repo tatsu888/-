@@ -151,3 +151,84 @@ export function selectionStats(values: unknown[]): { count: number; nums: number
     avg: nums.length ? sum / nums.length : null, min: nums.length ? Math.min(...nums) : null, max: nums.length ? Math.max(...nums) : null,
   };
 }
+
+// ---------------------------------------------------------------- conditional formatting
+export interface CfRule { ranges: string[]; type: string; operator?: string; values?: (number | null)[]; fill?: string; font?: string; bold?: boolean; cfvo?: { type: string; val: number | null }[]; colors?: string[]; color?: string; stop?: boolean }
+export interface CfStyle { bg?: string; color?: string; bold?: boolean; bar?: { pct: number; color: string } }
+
+function rangeCells(r: string, parse: (a: string) => [number, number], col: (n: number) => string): string[] {
+  const [a, b] = r.split(':');
+  const [r1, c1] = parse(a), [r2, c2] = parse(b ?? a);
+  const out: string[] = [];
+  for (let i = Math.min(r1, r2); i <= Math.max(r1, r2) && out.length < 20000; i++) for (let j = Math.min(c1, c2); j <= Math.max(c1, c2); j++) out.push(`${col(j)}${i}`);
+  return out;
+}
+
+function mix(c1: string, c2: string, t: number): string {
+  const a = [0, 2, 4].map((i) => parseInt(c1.slice(i, i + 2), 16)), b = [0, 2, 4].map((i) => parseInt(c2.slice(i, i + 2), 16));
+  return '#' + a.map((v, i) => Math.round(v + (b[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+
+/** Evaluate cellIs / colorScale / dataBar rules for a sheet → per-cell style overrides. */
+export function buildConditionalFormats(rules: CfRule[] | undefined, value: (addr: string) => unknown, parse: (a: string) => [number, number], col: (n: number) => string): Record<string, CfStyle> {
+  const out: Record<string, CfStyle> = {};
+  for (const rule of [...(rules ?? [])].sort((x: any, y: any) => (x.priority ?? 0) - (y.priority ?? 0))) {
+    const cells = rule.ranges.flatMap((r) => rangeCells(r, parse, col));
+    const nums = cells.map((a) => value(a)).filter((v): v is number => typeof v === 'number');
+    if (rule.type === 'cellIs') {
+      const [x, y] = rule.values ?? [];
+      const test = (v: number) => {
+        switch (rule.operator) {
+          case 'greaterThan': return x != null && v > x;
+          case 'greaterThanOrEqual': return x != null && v >= x;
+          case 'lessThan': return x != null && v < x;
+          case 'lessThanOrEqual': return x != null && v <= x;
+          case 'equal': return x != null && v === x;
+          case 'notEqual': return x != null && v !== x;
+          case 'between': return x != null && y != null && v >= Math.min(x, y) && v <= Math.max(x, y);
+          case 'notBetween': return x != null && y != null && (v < Math.min(x, y) || v > Math.max(x, y));
+          default: return false;
+        }
+      };
+      for (const a of cells) {
+        const v = value(a);
+        if (typeof v === 'number' && test(v) && !out[a]?.bg) out[a] = { ...out[a], ...(rule.fill ? { bg: `#${rule.fill}` } : {}), ...(rule.font ? { color: `#${rule.font}` } : {}), ...(rule.bold ? { bold: true } : {}) };
+      }
+    } else if ((rule.type === 'colorScale' || rule.type === 'dataBar') && nums.length) {
+      const sorted = [...nums].sort((p, q) => p - q);
+      const lo = sorted[0], hi = sorted[sorted.length - 1];
+      const point = (c?: { type: string; val: number | null }, fallback = lo) => {
+        if (!c) return fallback;
+        if (c.type === 'min') return lo;
+        if (c.type === 'max') return hi;
+        if (c.type === 'num' && c.val != null) return c.val;
+        if (c.type === 'percent' && c.val != null) return lo + ((hi - lo) * c.val) / 100;
+        if (c.type === 'percentile' && c.val != null) return sorted[Math.min(sorted.length - 1, Math.round(((sorted.length - 1) * c.val) / 100))];
+        return fallback;
+      };
+      for (const a of cells) {
+        const v = value(a);
+        if (typeof v !== 'number') continue;
+        if (rule.type === 'dataBar') {
+          out[a] = { ...out[a], bar: { pct: hi === lo ? 100 : Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100)), color: `#${rule.color ?? '638EC6'}` } };
+        } else if (rule.colors && rule.colors.length >= 2 && !out[a]?.bg) {
+          const cs = rule.colors;
+          const p0 = point(rule.cfvo?.[0], lo), pN = point(rule.cfvo?.[cs.length - 1], hi);
+          if (cs.length === 2) out[a] = { ...out[a], bg: mix(cs[0], cs[1], pN === p0 ? 0.5 : Math.max(0, Math.min(1, (v - p0) / (pN - p0)))) };
+          else {
+            const pm = point(rule.cfvo?.[1], (p0 + pN) / 2);
+            out[a] = { ...out[a], bg: v <= pm ? mix(cs[0], cs[1], pm === p0 ? 1 : Math.max(0, Math.min(1, (v - p0) / (pm - p0)))) : mix(cs[1], cs[2], pN === pm ? 1 : Math.max(0, Math.min(1, (v - pm) / (pN - pm)))) };
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** {addr: options} for list data-validation (dropdown) cells. */
+export function buildValidations(vals: { ranges: string[]; options: unknown[] }[] | undefined, parse: (a: string) => [number, number], col: (n: number) => string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const v of vals ?? []) for (const r of v.ranges) for (const a of rangeCells(r, parse, col)) out[a] = v.options.map(String);
+  return out;
+}
