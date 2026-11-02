@@ -229,3 +229,44 @@ async def diagnose(symbols: bool = True, format: str = "json"):
     if format == "markdown":
         return PlainTextResponse(to_markdown(rep))
     return rep
+
+
+# ---- custom screener (SCRN) ----------------------------------------------
+class ScreenReq(BaseModel):
+    market: str = "america"
+    filters: list[dict[str, Any]] = []
+    columns: list[str] = ["close", "change", "volume", "market_cap_basic", "price_earnings_ttm", "sector"]
+    sort_by: str = "market_cap_basic"
+    order: str = "desc"
+    limit: int = 100
+
+
+@router.get("/screener/fields")
+async def screener_fields():
+    from .screener import FIELDS, OPERATIONS, PRESET_SCREENS
+
+    return {"fields": {k: {"label": v[0], "group": v[1], "unit": v[2]} for k, v in FIELDS.items()},
+            "operations": OPERATIONS, "presets": PRESET_SCREENS}
+
+
+@router.post("/screener/custom")
+async def screener_custom(req: ScreenReq):
+    from . import screener as SC
+
+    errs = SC.validate(req.filters)
+    if errs:
+        raise HTTPException(400, "; ".join(errs))
+    cols = [c for c in req.columns if c in SC.FIELDS]
+    limit = max(1, min(req.limit, 500))
+    if S.registry.active_name == "sim":  # local evaluation on simulated quotes (demo only)
+        prov = await S.provider()
+        qs = await prov.screener(req.market, "most_active", 200)
+        rows = [{"symbol": q["symbol"], "name": q["symbol"].split(":")[-1], "description": q.get("name"),
+                 "close": q.get("last"), "change": q.get("change_pct"), "volume": q.get("volume"),
+                 "market_cap_basic": q.get("market_cap")} for q in qs]
+        return {"total": None, "rows": SC.run_local(rows, req.filters, req.sort_by, req.order, limit), "source": "sim"}
+    try:
+        res = await S.web.scan_custom(req.market, req.filters, cols, req.sort_by, req.order, limit)
+    except ProviderError as e:
+        raise HTTPException(502, str(e)) from e
+    return {**res, "source": "tradingview"}

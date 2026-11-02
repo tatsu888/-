@@ -140,6 +140,22 @@ class TVWeb:
             raise ProviderError(f"scanner failed: {_detail(e)}") from e
         return [{"symbol": row.get("s"), **dict(zip(columns, row.get("d", [])))} for row in data.get("data", [])]
 
+    # ---- custom screener (filters built in the SCRN panel) -----------------
+    async def scan_custom(self, market: str, filters: list[dict[str, Any]], columns: list[str],
+                          sort_by: str, order: str, limit: int) -> dict[str, Any]:
+        cols = list(dict.fromkeys(["name", "description", *columns]))
+        body = {"columns": cols, "filter": filters, "sort": {"sortBy": sort_by, "sortOrder": order},
+                "range": [0, limit], "options": {"lang": "en"}, "markets": [market]}
+        try:
+            r = await self.http.post(SCAN_URL.format(market=market), content=json.dumps(body),
+                                     headers={"Content-Type": "application/json"})
+            r.raise_for_status()
+            data = r.json()
+        except Exception as e:  # noqa: BLE001
+            raise ProviderError(f"screener failed: {_detail(e)}") from e
+        rows = [{"symbol": row.get("s"), **dict(zip(cols, row.get("d", [])))} for row in data.get("data", [])]
+        return {"total": data.get("totalCount"), "rows": rows}
+
     # ---- many symbols, arbitrary columns (RV peers, earnings calendar) ------
     async def scan_symbols(self, symbols: list[str], columns: list[str],
                            fallback: list[str] | None = None) -> dict[str, dict[str, Any]]:

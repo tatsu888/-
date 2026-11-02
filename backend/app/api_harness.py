@@ -293,3 +293,19 @@ async def export_xlsx(spec: dict[str, Any]):
     name = (spec.get("company", {}).get("symbol") or "model").replace(":", "_")
     return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": f'attachment; filename="{name}_harness.xlsx"'})
+
+
+@router.get("/for_symbol")
+async def models_for_symbol(symbol: str):
+    """Saved models whose spec.company.symbol matches (used by TEAR / DES), with their latest version summary."""
+    saved = S.store.get("harness_models") or {}
+    versions = S.store.get("harness_versions") or {}
+    out = []
+    for name, spec in saved.items():
+        if (spec.get("company") or {}).get("symbol") == symbol:
+            hist = versions.get(name) or []
+            last = hist[-1] if hist else {}
+            out.append({"name": name, "version": last.get("version"), "saved_at": last.get("saved_at"),
+                        "summary": last.get("summary"), "company": spec.get("company"),
+                        "forecast_years": spec.get("forecast_years")})
+    return out

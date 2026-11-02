@@ -18,6 +18,7 @@ import { MODEL } from './functions/MODEL';
 import { HMAP, MOST } from './functions/Screener';
 import { DES, NEWS, NOTE, TA } from './functions/Security';
 import { XLS } from './functions/XLS';
+import { SCRN, TEAR } from './functions/Reports';
 
 const DEFAULT_PANELS: PanelState[] = [
   { id: 'p1', fn: 'GP' },
@@ -52,6 +53,7 @@ export default function App() {
   const [panels, setPanels] = useState<PanelState[]>(() => load('term.panels', DEFAULT_PANELS));
   const [layout, setLayout] = useState<number>(() => load('term.layout', 4));
   const [focus, setFocus] = useState<string>('p1');
+  const [maxed, setMaxed] = useState<string | null>(null); // maximized panel id (double-click header)
   const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
   const [provider, setProvider] = useState('');
   const [workspaces, setWorkspaces] = useState<Record<string, { panels: PanelState[]; layout: number; security: string }>>({});
@@ -110,7 +112,7 @@ export default function App() {
   });
 
   const setSecurity = useCallback((s: string) => setSecurityRaw(s), []);
-  const visible = panels.slice(0, layout);
+  const visible = maxed ? panels.filter((p) => p.id === maxed) : panels.slice(0, layout);
 
   const run = useCallback(
     (fn: string, sec?: string, args?: string) => {
@@ -141,7 +143,7 @@ export default function App() {
         </div>
         <FKeys layout={layout} setLayout={setLayout} ws={wsApi} />
         <TickerTape />
-        <div className={`grid l${layout}`}>
+        <div className={`grid l${maxed ? 1 : layout}`}>
           {visible.map((p) => (
             <PanelView
               key={p.id}
@@ -151,6 +153,8 @@ export default function App() {
               security={p.symbol ?? security}
               onPin={() => setPanels((ps) => ps.map((x) => (x.id === p.id ? { ...x, symbol: x.symbol ? undefined : security } : x)))}
               onFn={(fn) => setPanels((ps) => ps.map((x) => (x.id === p.id ? { ...x, fn, args: undefined } : x)))}
+              maxed={maxed === p.id}
+              onMax={() => setMaxed(maxed === p.id ? null : p.id)}
               switchProvider={switchProvider}
             />
           ))}
@@ -166,14 +170,15 @@ export default function App() {
   );
 }
 
-function PanelView({ p, focused, onFocus, security, onPin, onFn, switchProvider }: {
+function PanelView({ p, focused, onFocus, security, onPin, onFn, switchProvider, maxed, onMax }: {
   p: PanelState; focused: boolean; onFocus: () => void; security: string; onPin: () => void; onFn: (fn: string) => void; switchProvider: (n: string) => void;
+  maxed: boolean; onMax: () => void;
 }) {
   const def = FUNCTIONS.find((f) => f.code === p.fn);
   const usesSec = def?.needsSecurity || ['N', 'XLS', 'ALRT', 'LAG'].includes(p.fn);
   return (
     <div className={`panel ${focused ? 'focused' : ''}`} onMouseDown={onFocus}>
-      <div className="phead">
+      <div className="phead" onDoubleClick={(e) => (e.target as HTMLElement).tagName !== 'SELECT' && onMax()} title="double-click: maximize / restore">
         <select className="inp" value={p.fn} onChange={(e) => onFn(e.target.value)} style={{ background: '#ffa028', color: '#000', fontWeight: 700, border: 0 }}>
           {FUNCTIONS.map((f) => (
             <option key={f.code} value={f.code}>{f.code}</option>
@@ -182,6 +187,7 @@ function PanelView({ p, focused, onFocus, security, onPin, onFn, switchProvider 
         {usesSec && <span className="sec">{shortSym(security)}</span>}
         <span className="title">{def?.name}</span>
         <span className="sp" />
+        <span className="pin" onClick={onMax} title={maxed ? 'restore layout' : 'maximize panel'}>{maxed ? '🗗' : '⤢'}</span>
         {usesSec && (
           <span className={`pin ${p.symbol ? 'on' : ''}`} onClick={onPin} title={p.symbol ? 'pinned — click to follow the loaded security' : 'click to pin this panel to the current security'}>
             {p.symbol ? '📌' : '🔗'}
@@ -213,6 +219,8 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'RV': return <RV symbol={symbol} args={args} />;
     case 'OV': return <OV symbol={symbol} />;
     case 'EARN': return <EARN />;
+    case 'TEAR': return <TEAR symbol={symbol} />;
+    case 'SCRN': return <SCRN />;
     case 'W': return <Watchlist />;
     case 'WEI': case 'FX': case 'RATES': case 'CMDTY': case 'CRYP': return <ListMonitor list={fn} />;
     case 'MOST': return <MOST args={args} />;

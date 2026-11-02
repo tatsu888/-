@@ -176,3 +176,15 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
   .grid.l3 > .panel:first-child { grid-row: auto; }
   .clock { display: none; }
 }
+
+/* --- printing (TEAR) ---------------------------------------------------- */
+@media print {
+  body.printing * { visibility: hidden; }
+  body.printing .print-area, body.printing .print-area * { visibility: visible; }
+  body.printing .print-area { position: absolute; left: 0; top: 0; width: 100%; background: #fff; color: #000; }
+  body.printing .print-area .muted, body.printing .print-area .note { color: #444; }
+  body.printing .print-area .box { border-color: #999; background: #fff; }
+  body.printing .print-area .box > h4 { background: #eee; color: #000; }
+  body.printing .no-print { display: none; }
+  html, body, #root { height: auto; overflow: visible; background: #fff; }
+}

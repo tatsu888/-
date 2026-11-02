@@ -21,7 +21,9 @@ scripts/setup.sh
 scripts/start.sh
 ```
 
-ブラウザで http://localhost:8000 を開きます。Windows では `scripts\setup.ps1` → `scripts\start.ps1` を実行します。
+ブラウザで http://localhost:8000 を開きます。
+
+**Windows では、リポジトリ直下の `Start-Terminal.bat` をダブルクリックするだけで起動します。**初回はセットアップ（Python パッケージと xlwings のインストール、画面のビルド）を自動で行い、ブラウザも自動で開きます。PowerShell から手動で行う場合は `scripts\setup.ps1` → `scripts\start.ps1` です。
 
 開発時（ホットリロード）は `scripts/dev.sh` を実行し、http://localhost:5173 を開きます。
 

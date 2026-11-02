@@ -31,6 +31,8 @@ export const FUNCTIONS: FnDef[] = [
   { code: 'RATES', name: 'Govt Yields', desc: '国債利回り', group: 'Monitor' },
   { code: 'CMDTY', name: 'Commodities', desc: 'コモディティ', group: 'Monitor' },
   { code: 'CRYP', name: 'Crypto', desc: '暗号資産', group: 'Monitor' },
+  { code: 'SCRN', name: 'Screen Builder', desc: '条件を組み立てるスクリーナー (PER/ROE/モメンタム…・保存可)', group: 'Monitor' },
+  { code: 'TEAR', name: 'Tear Sheet', desc: '銘柄1枚サマリー (印刷/PDF)', needsSecurity: true, group: 'Security' },
   { code: 'MOST', name: 'Screener', desc: '値上がり/値下がり/出来高/時価総額 (TradingView scanner)', group: 'Monitor' },
   { code: 'HMAP', name: 'Heatmap', desc: 'マーケットヒートマップ (時価総額×騰落)', group: 'Monitor' },
   { code: 'FACT', name: 'Factor Analysis', desc: 'ファクター/スタイル分析 (ETF・クロスセクション・セクター)', group: 'Analytics' },
