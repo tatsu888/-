@@ -26,6 +26,11 @@ DEFAULTS: dict[str, Any] = {
     "macro_map": None,    # user-edited propagation map (None -> macro.DEFAULT_MAP)
     "screens": {},        # saved SCRN screens
     "trades": [],         # trade blotter [{id, time, symbol, side, qty, price, fee, note}]
+    "scorecards": {},     # symbol -> [{version, saved_at, sheet, result}] (Trinity 評点表 history)
+    "fw_book": {"positions": [], "level": "book", "nav": None, "drawdown_pct": None},  # Trinity exposure book
+    "fw_ideas": [],       # [{id, title, theme, long, short, answers, month, created}] (05.6 gates)
+    "fw_ideas_archive": {},  # month -> ideas snapshot (毎月ゼロから作り直す)
+    "transcripts": {},    # symbol -> [{id, period, date, title, text}] (TXT tone/diff)
 }
 
 ALLOWED_KEYS = tuple(DEFAULTS)

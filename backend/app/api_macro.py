@@ -93,5 +93,20 @@ async def propagation(bars: int = Query(800, ge=200, le=3000), z_window: int = Q
 async def dashboard(bars: int = Query(1500, ge=200, le=5000), source: str | None = None):
     syms = list(dict.fromkeys(macro.all_macro_symbols([]) ))
     data, errors = await _load(syms, bars, source)
-    return {"dashboard": macro.dashboard(data), "regime": macro.regimes(data), "errors": errors,
+    return {"dashboard": macro.dashboard(data), "regime": macro.regimes(data),
+            "growth_liquidity": macro.growth_liquidity(data), "errors": errors,
+            "source": source or S.registry.active_name}
+
+
+@router.get("/growth_liquidity")
+async def growth_liquidity(bars: int = Query(1500, ge=300, le=5000), horizon: int = Query(63, ge=10, le=252),
+                           z_window: int = Query(756, ge=120, le=2520), source: str | None = None):
+    """Growth × Liquidity 4-quadrant rotation (Notion 03.4) with market-based proxies."""
+    syms = []
+    for comps in macro.GL_INPUTS.values():
+        for _, spec, _, _ in comps:
+            syms += macro.symbols_in(spec)
+    syms += list(macro.GL_ASSETS.values())
+    data, errors = await _load(list(dict.fromkeys(syms)), bars, source)
+    return {**macro.growth_liquidity(data, horizon, z_window), "errors": errors,
             "source": source or S.registry.active_name}

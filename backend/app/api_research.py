@@ -133,3 +133,100 @@ async def social_stocktwits(symbol: str | None = None):
         raise HTTPException(502, str(e)) from e
     finally:
         await st.close()
+
+
+# ---- TXT: transcript tone / lazy-prices diff / evasiveness / cited brief harness ----------------
+from . import transcripts as TX  # noqa: E402
+
+
+def _tx() -> dict[str, list[dict[str, Any]]]:
+    return S.store.get("transcripts") or {}
+
+
+@router.get("/transcripts")
+async def transcripts_index():
+    return {"symbols": {k: [{kk: vv for kk, vv in t.items() if kk != "text"} for t in v] for k, v in _tx().items()}}
+
+
+@router.get("/transcripts/{symbol}")
+async def transcripts_list(symbol: str):
+    return {"symbol": symbol, "items": [{k: v for k, v in t.items() if k != "text"} | {"chars": len(t.get("text", ""))}
+                                        for t in _tx().get(symbol, [])]}
+
+
+class TranscriptReq(BaseModel):
+    period: str               # e.g. 2026Q2 / FY2026 2Q — sort key, so keep the format consistent
+    date: str | None = None
+    title: str | None = None
+    text: str
+
+
+@router.post("/transcripts/{symbol}")
+async def transcripts_add(symbol: str, req: TranscriptReq):
+    import uuid
+
+    allx = _tx()
+    items = [t for t in allx.get(symbol, []) if t.get("period") != req.period]  # one per period (replace)
+    items.append({"id": uuid.uuid4().hex[:10], "period": req.period, "date": req.date, "title": req.title, "text": req.text})
+    items.sort(key=lambda t: t["period"])
+    allx[symbol] = items
+    S.store.set("transcripts", allx)
+    return {"ok": True, "count": len(items)}
+
+
+@router.delete("/transcripts/{symbol}/{tid}")
+async def transcripts_delete(symbol: str, tid: str):
+    allx = _tx()
+    allx[symbol] = [t for t in allx.get(symbol, []) if t.get("id") != tid]
+    S.store.set("transcripts", allx)
+    return {"ok": True}
+
+
+def _pick(symbol: str, tid: str | None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    items = _tx().get(symbol, [])
+    if not items:
+        raise HTTPException(404, "no transcripts for this symbol")
+    i = next((k for k, t in enumerate(items) if t["id"] == tid), len(items) - 1) if tid else len(items) - 1
+    return items[i], (items[i - 1] if i > 0 else None)
+
+
+@router.get("/transcripts/{symbol}/analyze")
+async def transcripts_analyze(symbol: str, id: str | None = None):
+    cur, prev = _pick(symbol, id)
+    res = TX.analyze(cur["text"], prev["text"] if prev else None)
+    # history of change scores across all periods (lazy-prices series for this company)
+    items = _tx().get(symbol, [])
+    series = []
+    for a, b in zip(items, items[1:]):
+        d = TX.diff(a["text"], b["text"])
+        series.append({"period": b["period"], "change_score": d["change_score"], "net_tone": TX.tone(b["text"])["net_tone"],
+                       "uncertainty_per_1k": TX.tone(b["text"])["uncertainty_per_1k"]})
+    return {"symbol": symbol, "period": cur["period"], "prev_period": prev["period"] if prev else None,
+            **res, "history": series}
+
+
+class TextReq(BaseModel):
+    text: str
+    prev: str | None = None
+
+
+@router.post("/transcripts/analyze_text")
+async def transcripts_analyze_text(req: TextReq):
+    return TX.analyze(req.text, req.prev)
+
+
+@router.get("/transcripts/{symbol}/brief_pack")
+async def transcripts_brief_pack(symbol: str, id: str | None = None):
+    cur, _ = _pick(symbol, id)
+    return {"symbol": symbol, "period": cur["period"], **TX.brief_pack(cur["text"], symbol)}
+
+
+class BriefReq(BaseModel):
+    brief: str
+    id: str | None = None
+
+
+@router.post("/transcripts/{symbol}/validate_brief")
+async def transcripts_validate(symbol: str, req: BriefReq):
+    cur, _ = _pick(symbol, req.id)
+    return TX.validate_brief(cur["text"], req.brief)

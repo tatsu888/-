@@ -373,6 +373,110 @@ def regimes(data: dict[str, dict[str, float]], lookback_months: int = 3) -> dict
             "note": "growth = copper/gold, inflation = TIP/IEF (3-month change); returns are NEXT-month (no look-ahead)"}
 
 
+# ---------------------------------------------------------------------------
+# Growth × Liquidity 4-quadrant rotation (Notion 03.4 マクロ・サイクリカル・モニター)
+# ---------------------------------------------------------------------------
+# The user's own composite indicator is proprietary; these are MARKET-BASED PROXIES (editable here):
+#   growth    : 3M change of copper/gold (log) and of the US 10Y yield (bp)
+#   liquidity : −3M change of DXY (log), −3M change of the US 2Y yield (bp), 3M change of HYG/IEF (log)
+# Each component's 63-day change is z-scored on its trailing 3-year history; the axis = mean of z.
+GL_INPUTS = {
+    "growth": [("Copper/Gold", {"ratio": ["COMEX:HG1!", "TVC:GOLD"]}, "log", 1), ("US 10Y", "TVC:US10Y", "level", 1)],
+    "liquidity": [("DXY", "TVC:DXY", "log", -1), ("US 2Y", "TVC:US02Y", "level", -1),
+                  ("HY/IEF", {"ratio": ["AMEX:HYG", "NASDAQ:IEF"]}, "log", 1)],
+}
+# Notion: 時計回りに 4 → 1 → 2 → 3 と巡る
+GL_QUADRANTS = {
+    1: {"name": "1. 回復", "pos": "右上", "liq": "緩和", "growth": "拡大／回復", "assets": "テック／シクリカル／日本／中国／EM"},
+    2: {"name": "2. ピーキング", "pos": "右下", "liq": "引き締め", "growth": "拡大／回復", "assets": "ベータ／EM／コモディティ／バリュー"},
+    3: {"name": "3. スローダウン", "pos": "左下", "liq": "引き締め", "growth": "減速", "assets": "ディフェンシブ／クオリティ／ゴールド／債券／DXY"},
+    4: {"name": "4. ボトミング", "pos": "左上", "liq": "緩和", "growth": "減速", "assets": "テック／グロース／日本／欧州／中国"},
+}
+GL_NEXT = {4: 1, 1: 2, 2: 3, 3: 4}
+GL_ASSETS = {"Tech QQQ": "NASDAQ:QQQ", "Cyclicals XLI": "AMEX:XLI", "Defensive XLP": "AMEX:XLP", "Japan TOPIX": "TVC:TOPIX",
+             "China FXI": "AMEX:FXI", "EM EEM": "AMEX:EEM", "Europe VGK": "AMEX:VGK", "Commodities DBC": "AMEX:DBC",
+             "Value IWD": "AMEX:IWD", "Gold": "TVC:GOLD", "Bonds IEF": "NASDAQ:IEF", "DXY": "TVC:DXY"}
+
+
+def quadrant(g: float, l: float) -> int:
+    if g >= 0:
+        return 1 if l >= 0 else 2
+    return 4 if l >= 0 else 3
+
+
+def _axis(data: dict[str, dict[str, float]], comps: list[tuple[str, Any, str, int]], horizon: int,
+          z_window: int) -> tuple[dict[str, float], list[dict[str, Any]]]:
+    zs: list[dict[str, float]] = []
+    info = []
+    for label, spec, how, sign in comps:
+        s = build(spec, data)
+        ds = sorted(s)
+        chg: dict[str, float] = {}
+        for i in range(horizon, len(ds)):
+            a, b = s[ds[i - horizon]], s[ds[i]]
+            if how == "log":
+                if a > 0 and b > 0:
+                    chg[ds[i]] = sign * math.log(b / a)
+            else:
+                chg[ds[i]] = sign * (b - a)
+        cd = sorted(chg)
+        z: dict[str, float] = {}
+        for i in range(60, len(cd)):
+            win = [chg[d] for d in cd[max(0, i - z_window):i + 1]]
+            sd = _sd(win)
+            if sd > 0:
+                z[cd[i]] = (chg[cd[i]] - _mean(win)) / sd
+        info.append({"label": label, "spec": spec, "sign": sign, "n": len(z), "last_z": z[max(z)] if z else None})
+        if z:
+            zs.append(z)
+    if not zs:
+        return {}, info
+    common = sorted(set.intersection(*(set(z) for z in zs)))
+    return {d: sum(z[d] for z in zs) / len(zs) for d in common}, info
+
+
+def growth_liquidity(data: dict[str, dict[str, float]], horizon: int = 63, z_window: int = 756,
+                     trail: int = 126) -> dict[str, Any]:
+    g, gi = _axis(data, GL_INPUTS["growth"], horizon, z_window)
+    l, li = _axis(data, GL_INPUTS["liquidity"], horizon, z_window)
+    dates = sorted(g.keys() & l.keys())
+    if not dates:
+        return {"error": "insufficient data for growth/liquidity proxies", "inputs": {"growth": gi, "liquidity": li}}
+    path = [{"date": d, "growth": g[d], "liquidity": l[d], "q": quadrant(g[d], l[d])} for d in dates]
+    cur = path[-1]
+    # rotation: angle change over the last 20 sessions (clockwise = negative in math convention when
+    # x = growth, y = liquidity: 4 (左上) → 1 (右上) → 2 (右下) → 3 (左下))
+    ang = [math.atan2(p["liquidity"], p["growth"]) for p in path[-21:]]
+    dang = 0.0
+    for a, b in zip(ang, ang[1:]):
+        d = b - a
+        d = (d + math.pi) % (2 * math.pi) - math.pi
+        dang += d
+    rotation = "時計回り（通常の循環）" if dang < -0.05 else "反時計回り（逆行）" if dang > 0.05 else "停滞"
+    # forward 1-month (21 sessions) returns by quadrant, sampled every 21 sessions (no overlap, no look-ahead)
+    table: dict[int, dict[str, list[float]]] = {}
+    for i in range(0, len(path), 21):
+        d0 = path[i]["date"]
+        q = path[i]["q"]
+        for name, sym in GL_ASSETS.items():
+            s = data.get(sym) or {}
+            sd = sorted(s)
+            if d0 not in s:
+                continue
+            j = sd.index(d0)
+            if j + 21 < len(sd) and s[d0]:
+                table.setdefault(q, {}).setdefault(name, []).append((s[sd[j + 21]] / s[d0] - 1) * 100)
+    stats = {q: {a: {"mean": _mean(v), "hit": sum(1 for x in v if x > 0) / len(v) * 100, "n": len(v)}
+                 for a, v in d.items() if v} for q, d in table.items()}
+    occupancy = {q: sum(1 for p in path if p["q"] == q) for q in GL_QUADRANTS}
+    return {"current": {**cur, **GL_QUADRANTS[cur["q"]]}, "next": {"q": GL_NEXT[cur["q"]], **GL_QUADRANTS[GL_NEXT[cur["q"]]]},
+            "rotation": rotation, "rotation_rad_20d": dang, "trail": path[-trail:], "closeup_days": 63,
+            "quadrants": GL_QUADRANTS, "fwd_returns": stats, "occupancy": occupancy, "assets": GL_ASSETS,
+            "inputs": {"growth": gi, "liquidity": li},
+            "note": "市場データによる代理指標（ユーザー独自指標ではない）。各成分の3ヶ月変化を過去3年でz化し平均。"
+                    "象限別リターンは翌1ヶ月（重複なし・先読みなし）。"}
+
+
 MACRO_DASH = [
     {"group": "Policy & curve", "items": [
         ("US 2Y", "TVC:US02Y", "yield"), ("US 10Y", "TVC:US10Y", "yield"), ("US 10Y−2Y", {"spread": ["TVC:US10Y", "TVC:US02Y"]}, "yield"),
@@ -406,6 +510,10 @@ def all_macro_symbols(map_items: list[dict[str, Any]]) -> list[str]:
     for spec in REGIME_INPUTS.values():
         syms += symbols_in(spec)
     syms += REGIME_ASSETS
+    for comps in GL_INPUTS.values():
+        for _, spec, _, _ in comps:
+            syms += symbols_in(spec)
+    syms += list(GL_ASSETS.values())
     for grp in MACRO_DASH:
         for _, spec, _ in grp["items"]:
             syms += symbols_in(spec)
