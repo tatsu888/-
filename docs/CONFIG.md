@@ -9,7 +9,7 @@
 | `PUSH_INTERVAL_SEC` | `0.25` | ブラウザへまとめて送る間隔（秒） |
 | `TERMINAL_DATA_DIR` | `<repo>/data` | store.json と workbooks の保存先 |
 | `TERMINAL_EXCEL_DIRS` | `<DATA_DIR>/workbooks` | Excel ライブラリのルート（OS のパス区切り文字で区切る） |
-| `TERMINAL_EXCEL_WRITE` | `off` | off, xlwings, openpyxl（[EXCEL.md](EXCEL.md)） |
+| `TERMINAL_EXCEL_WRITE` | `auto` | auto（xlwings が使えればそれ、なければ劣化しないファイルだけ openpyxl）, xlwings, openpyxl, off（[EXCEL.md](EXCEL.md)） |
 | `TERMINAL_STATIC_DIR` | `<repo>/frontend/dist` | 本番でビルド済みの UI を配信する場所 |
 | `TERMINAL_CORS` | `http://localhost:5173,http://127.0.0.1:5173` | 開発サーバーの CORS |
 | `LOG_LEVEL` | `INFO` | |

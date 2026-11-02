@@ -22,6 +22,7 @@ export function CommandLine() {
       // any printable key when nothing else is focused goes to the command line (terminal feel)
       const t = e.target as HTMLElement;
       if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (t.closest?.('[data-own-keys]')) return; // e.g. the XLS grid handles its own typing
       if (e.key.length === 1 || e.key === 'Backspace') ref.current?.focus();
     };
     window.addEventListener('keydown', onKey);

@@ -6,13 +6,16 @@ Design principle (ユーザー要件): **Excel の機能を劣化させない**.
     calculated and cached on save (openpyxl data_only=True) + formatting.
   * Editing happens in real Excel ("Open in Excel"); the browser view refreshes
     automatically when the file is saved (mtime watcher -> websocket push).
-  * Write-back from the browser is OFF by default. Modes (TERMINAL_EXCEL_WRITE):
-      off       (default) read-only
-      xlwings   drive the real Excel application (lossless; Windows/macOS + Excel)
-      openpyxl  direct file write; refused when the file contains parts openpyxl
-                cannot preserve (charts, images, pivots, macros, ...). Always
-                backs up first. Formula cached values are dropped by openpyxl,
-                so Excel recalculates on next open (fullCalcOnLoad).
+  * Editing from the browser (ユーザー要件: Windows で HTML から編集したい). TERMINAL_EXCEL_WRITE:
+      auto      (default) xlwings if available (Windows/macOS + desktop Excel), otherwise
+                openpyxl but only for files openpyxl can save without losing anything
+      xlwings   always drive the real Excel application — lossless: Excel itself writes,
+                recalculates and saves; if the workbook is open, the user's Excel window updates live
+      openpyxl  direct file write; refused when the file contains parts openpyxl cannot
+                preserve (charts, images, pivots, macros, ...). Always backs up first.
+                Formula cached values are dropped by openpyxl, so they are recomputed by the
+                terminal engine for display and by Excel on next open (fullCalcOnLoad)
+      off       read-only
   * What-if: overrides are applied in memory and formulas are re-evaluated with
     app/formula.py; the file is untouched. Cells using functions the engine does
     not support keep Excel's cached value and are flagged "stale".
@@ -64,7 +67,89 @@ def _roots() -> list[Path]:
 
 
 def write_mode() -> str:
-    return os.environ.get("TERMINAL_EXCEL_WRITE", "off").lower()
+    return os.environ.get("TERMINAL_EXCEL_WRITE", "auto").strip().lower() or "auto"
+
+
+def xlwings_available() -> bool:
+    """True when the real Excel application can be driven (Windows / macOS with xlwings installed)."""
+    if sys.platform not in ("win32", "darwin"):
+        return False
+    try:
+        import xlwings  # type: ignore  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+class _ExcelThread:
+    """All COM / AppleScript calls into Excel run on one dedicated thread (COM is apartment-threaded)."""
+
+    def __init__(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="excel-com", initializer=self._init)
+
+    @staticmethod
+    def _init() -> None:
+        try:
+            import pythoncom  # type: ignore
+
+            pythoncom.CoInitialize()
+        except ImportError:
+            pass
+
+    def run(self, fn, *args):
+        return self._pool.submit(fn, *args).result(timeout=120)
+
+
+_EXCEL_THREAD: _ExcelThread | None = None
+
+
+def _excel_thread() -> _ExcelThread:
+    global _EXCEL_THREAD
+    if _EXCEL_THREAD is None:
+        _EXCEL_THREAD = _ExcelThread()
+    return _EXCEL_THREAD
+
+
+def _xlwings_write(path: Path, sheet: str, updates: dict[str, Any]) -> dict[str, Any]:
+    """Write through the Excel application. Attaches to the workbook if the user already has it open
+    (their window updates immediately), otherwise opens it in a hidden Excel instance."""
+    import xlwings as xw  # type: ignore
+
+    target = path.resolve()
+    book, own_app = None, None
+    for app in xw.apps:
+        for b in app.books:
+            try:
+                if Path(b.fullname).resolve() == target:
+                    book = b
+                    break
+            except Exception:  # noqa: BLE001 - unsaved books have no path
+                continue
+        if book is not None:
+            break
+    if book is None:
+        own_app = xw.App(visible=False, add_book=False)
+        own_app.display_alerts = False
+        book = own_app.books.open(str(target), update_links=False)
+    try:
+        ws = book.sheets[sheet]
+        before: dict[str, Any] = {}
+        for addr, val in updates.items():
+            rng = ws.range(addr)
+            f = rng.formula
+            before[addr] = f if isinstance(f, str) and f.startswith("=") else _jsonable(rng.value)
+            if isinstance(val, str) and val.startswith("="):
+                rng.formula = val
+            else:
+                rng.value = _coerce_input(val)
+        book.save()
+        return {"before": before, "attached_to_open_workbook": own_app is None}
+    finally:
+        if own_app is not None:
+            book.close()
+            own_app.quit()
 
 
 class ExcelError(Exception):
@@ -148,7 +233,7 @@ class ExcelLibrary:
         found = {label for prefix, label in LOSSY_PARTS.items() if any(n.startswith(prefix) for n in names)}
         return sorted(found)
 
-    def view(self, file_id: str) -> dict[str, Any]:
+    def view(self, file_id: str, quote: F.QuoteLookup | None = None) -> dict[str, Any]:
         path = self.path_for(file_id)
         if path.suffix.lower() not in SUPPORTED:
             raise ExcelError(f"{path.suffix} cannot be rendered (use Open in Excel)", 415)
@@ -158,9 +243,11 @@ class ExcelLibrary:
         if hit and hit[0] == mtime:
             return hit[1]
         data = self._render(path)
-        self._fill_uncached(data)
-        data.update(id=file_id, name=path.name, mtime=mtime, write_mode=write_mode(),
-                    lossy_parts=self.lossy_parts(path))
+        self._fill_uncached(data, quote)
+        lossy = self.lossy_parts(path)
+        mode, reason = self.effective_write(path, lossy)
+        data.update(id=file_id, name=path.name, mtime=mtime, write_mode=mode or "off", write_reason=reason,
+                    lossy_parts=lossy)
         self._cache[file_id] = (mtime, data)
         return data
 
@@ -250,12 +337,12 @@ class ExcelLibrary:
         return st or None
 
     @staticmethod
-    def _fill_uncached(data: dict[str, Any]) -> None:
+    def _fill_uncached(data: dict[str, Any], quote: F.QuoteLookup | None = None) -> None:
         """Files saved by tools other than Excel (openpyxl, pandas ...) have formulas without cached
         values. Fill those with the engine and flag them ``calc`` so the UI can mark them."""
         sheets = {sh["name"]: {a: {"f": c.get("f"), "v": c.get("v")} for a, c in sh["cells"].items()}
                   for sh in data["sheets"]}
-        ev = F.Evaluator(sheets)
+        ev = F.Evaluator(sheets, quote)
         n = 0
         for sh in data["sheets"]:
             for addr, c in sh["cells"].items():
@@ -313,49 +400,65 @@ class ExcelLibrary:
             raise ExcelError(f"could not launch Excel on the server machine: {e}", 500) from e
         return {"ok": True, "path": str(path)}
 
-    def write_cells(self, file_id: str, sheet: str, updates: dict[str, Any]) -> dict[str, Any]:
+    def effective_write(self, path: Path, lossy: list[str] | None = None) -> tuple[str | None, str]:
+        """(mode, human-readable reason). mode None = read-only for this file."""
         mode = write_mode()
-        path = self.path_for(file_id)
         if mode == "off":
-            raise ExcelError("write-back disabled (TERMINAL_EXCEL_WRITE=off). Use Open in Excel.", 403)
+            return None, "read-only (TERMINAL_EXCEL_WRITE=off)"
+        if mode in ("auto", "xlwings") and xlwings_available():
+            return "xlwings", "Excel 本体経由で保存 (劣化なし)"
+        if mode == "xlwings":
+            return None, "xlwings / デスクトップ版 Excel が使えません (pip install xlwings)"
+        if mode not in ("auto", "openpyxl"):
+            return None, f"unknown TERMINAL_EXCEL_WRITE={mode}"
+        lossy = self.lossy_parts(path) if lossy is None else lossy
+        if lossy:
+            return None, ("直接書き込むと " + ", ".join(lossy) + " が失われるため編集不可。"
+                          "Windows で xlwings を入れると Excel 本体経由で劣化なく編集できます")
+        return "openpyxl", "ファイルへ直接保存 (自動バックアップ。数式の結果は Excel で開くと再計算)"
+
+    def write_cells(self, file_id: str, sheet: str, updates: dict[str, Any]) -> dict[str, Any]:
+        """Write values/formulas ("=...") to cells. Returns the previous contents for undo."""
+        path = self.path_for(file_id)
+        mode, reason = self.effective_write(path)
+        if mode is None:
+            raise ExcelError(reason, 409 if "失われる" in reason else 403)
         if mode == "xlwings":
             try:
-                import xlwings as xw  # type: ignore
-            except ImportError as e:
-                raise ExcelError("xlwings not installed (pip install xlwings; requires desktop Excel)", 501) from e
-            book = xw.Book(str(path))  # attaches if already open
-            ws = book.sheets[sheet]
-            for addr, val in updates.items():
-                rng = ws.range(addr)
-                if isinstance(val, str) and val.startswith("="):
-                    rng.formula = val
-                else:
-                    rng.value = _coerce_input(val)
-            book.save()
-        elif mode == "openpyxl":
-            lossy = self.lossy_parts(path)
-            if lossy:
-                raise ExcelError("refused: openpyxl would lose " + ", ".join(lossy) + ". Use Open in Excel or xlwings.",
-                                 409)
-            import openpyxl
-
-            backup_dir = path.parent / ".terminal_backups"
-            backup_dir.mkdir(exist_ok=True)
-            shutil.copy2(path, backup_dir / f"{path.stem}.{time.strftime('%Y%m%d-%H%M%S')}{path.suffix}")
-            wb = openpyxl.load_workbook(path, keep_vba=path.suffix.lower() == ".xlsm", keep_links=True)
-            ws = wb[sheet]
-            for addr, val in updates.items():
-                ws[addr] = val if isinstance(val, str) and val.startswith("=") else _coerce_input(val)
-            wb.calculation.fullCalcOnLoad = True
-            try:
-                wb.save(path)
-            except PermissionError as e:
-                raise ExcelError("file is locked (open in Excel?). Close it or use xlwings mode.", 423) from e
+                res = _excel_thread().run(_xlwings_write, path, sheet, updates)
+            except ExcelError:
+                raise
+            except Exception as e:  # noqa: BLE001 - COM errors are opaque; surface them
+                raise ExcelError(f"Excel (xlwings) error: {type(e).__name__}: {e}", 500) from e
         else:
-            raise ExcelError(f"unknown TERMINAL_EXCEL_WRITE={mode}", 500)
+            res = self._openpyxl_write(path, sheet, updates)
         self._own_writes[file_id] = path.stat().st_mtime
         self._cache.pop(file_id, None)
-        return {"ok": True, "mode": mode}
+        return {"ok": True, "mode": mode, **res}
+
+    @staticmethod
+    def _openpyxl_write(path: Path, sheet: str, updates: dict[str, Any]) -> dict[str, Any]:
+        import openpyxl
+
+        backup_dir = path.parent / ".terminal_backups"
+        backup_dir.mkdir(exist_ok=True)
+        backup = backup_dir / f"{path.stem}.{time.strftime('%Y%m%d-%H%M%S')}{path.suffix}"
+        if not backup.exists():  # one backup per second is enough when typing quickly
+            shutil.copy2(path, backup)
+        wb = openpyxl.load_workbook(path, keep_vba=path.suffix.lower() == ".xlsm", keep_links=True)
+        if sheet not in wb.sheetnames:
+            raise ExcelError(f"sheet not found: {sheet}", 404)
+        ws = wb[sheet]
+        before: dict[str, Any] = {}
+        for addr, val in updates.items():
+            before[addr] = _jsonable(ws[addr].value)
+            ws[addr] = val if isinstance(val, str) and val.startswith("=") else _coerce_input(val)
+        wb.calculation.fullCalcOnLoad = True
+        try:
+            wb.save(path)
+        except PermissionError as e:
+            raise ExcelError("ファイルがロックされています (Excel で開いている?)。閉じるか xlwings を使ってください", 423) from e
+        return {"before": before, "backup": backup.name}
 
     def save_upload(self, filename: str, content: bytes) -> dict[str, Any]:
         name = Path(filename).name
@@ -377,7 +480,8 @@ class ExcelLibrary:
                 continue
             if m != seen:
                 self.watched[fid] = m
-                out.append((fid, m))
+                if self._own_writes.get(fid) != m:  # edits made from the terminal are not "external" saves
+                    out.append((fid, m))
         return out
 
 
@@ -420,12 +524,18 @@ def _jsonable(v: Any) -> Any:
 
 
 def _coerce_input(v: Any) -> Any:
+    """Typed text -> Excel value, like typing into a cell: "1,234" -> 1234, "5%" -> 0.05, "TRUE" -> True."""
     if isinstance(v, str):
         s = v.strip()
         if s == "":
             return None
+        if s.upper() in ("TRUE", "FALSE"):
+            return s.upper() == "TRUE"
         try:
-            return float(s.replace(",", "")) if any(ch.isdigit() for ch in s) else s
+            if s.endswith("%"):
+                return float(s[:-1].replace(",", "")) / 100
+            n = float(s.replace(",", ""))
+            return int(n) if n.is_integer() and "." not in s and "e" not in s.lower() and abs(n) < 2**53 else n
         except ValueError:
             return s
     return v

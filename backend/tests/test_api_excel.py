@@ -1,5 +1,3 @@
-import os
-
 import openpyxl
 from fastapi.testclient import TestClient
 
@@ -34,23 +32,142 @@ def test_excel_view_link_whatif_and_readonly():
         assert v["styles"][cells["A1"]["s"]]["b"] == 1
         w = c.post("/api/excel/whatif", json={"id": fid, "overrides": {"Model!B1": 200}}).json()
         assert w["changed"]["Model!B3"] == 20
-        # read-only by default: no degradation of the source file
-        assert c.post("/api/excel/write", json={"id": fid, "sheet": "Model", "updates": {"B1": 1}}).status_code == 403
+        # editing from the browser (auto mode -> openpyxl here because xlwings/Excel is not available on Linux)
+        assert v["write_mode"] == "openpyxl"
+        w = c.post("/api/excel/write", json={"id": fid, "sheet": "Model", "updates": {"B1": "250", "B2": "20%"}})
+        assert w.status_code == 200, w.text
+        body = w.json()
+        assert body["before"] == {"B1": 100, "B2": 0.1}
+        cells = body["view"]["sheets"][0]["cells"]
+        assert cells["B1"]["v"] == 250 and cells["B2"]["v"] == 0.2
+        assert cells["B3"]["v"] == 50 and cells["B3"]["calc"]  # recomputed by the engine (no Excel cache)
+        # undo = write the previous contents back
+        c.post("/api/excel/write", json={"id": fid, "sheet": "Model", "updates": body["before"]})
+        assert openpyxl.load_workbook(root / "7203_Toyota_model.xlsx")["Model"]["B1"].value == 100
+        # own edits are not reported as external saves
+        assert S.excel.changed_files() == []
         # path traversal guard
         assert c.get("/api/excel/view", params={"id": "0/../../etc/passwd"}).status_code in (403, 404)
 
 
-def test_openpyxl_write_refuses_lossy_and_backs_up(tmp_path, monkeypatch):
+def test_openpyxl_write_backs_up_and_refuses_lossy(monkeypatch):
+    from openpyxl.chart import BarChart, Reference
+
+    from app.excel import ExcelError
     from app.state import S
 
     monkeypatch.setenv("TERMINAL_EXCEL_WRITE", "openpyxl")
     root = S.excel.roots[0]
     make_book(root / "plain.xlsx")
-    res = S.excel.write_cells("0/plain.xlsx", "Model", {"B1": "150"})
-    assert res["ok"]
-    assert openpyxl.load_workbook(root / "plain.xlsx")["Model"]["B1"].value == 150
+    res = S.excel.write_cells("0/plain.xlsx", "Model", {"B1": "150", "A9": "=B1*2"})
+    assert res["ok"] and res["mode"] == "openpyxl"
+    ws = openpyxl.load_workbook(root / "plain.xlsx")["Model"]
+    assert ws["B1"].value == 150 and ws["A9"].value == "=B1*2"
     assert any((root / ".terminal_backups").iterdir())
-    os.environ.pop("TERMINAL_EXCEL_WRITE", None)
+
+    # a workbook with a chart would be damaged by openpyxl -> refused (no degradation)
+    wb = openpyxl.Workbook()
+    wb.active.append([1])
+    wb.active.append([2])
+    ch = BarChart()
+    ch.add_data(Reference(wb.active, min_col=1, min_row=1, max_row=2))
+    wb.active.add_chart(ch, "C1")
+    wb.save(root / "with_chart.xlsx")
+    try:
+        S.excel.write_cells("0/with_chart.xlsx", "Sheet", {"A1": 5})
+        raise AssertionError("should refuse")
+    except ExcelError as e:
+        assert e.status == 409 and "charts" in str(e)
+
+    monkeypatch.setenv("TERMINAL_EXCEL_WRITE", "off")
+    try:
+        S.excel.write_cells("0/plain.xlsx", "Model", {"B1": 1})
+        raise AssertionError("should refuse")
+    except ExcelError as e:
+        assert e.status == 403
+
+
+class _FakeRange:
+    def __init__(self, cells, addr):
+        self.cells, self.addr = cells, addr
+
+    @property
+    def formula(self):
+        v = self.cells.get(self.addr)
+        return v if isinstance(v, str) and v.startswith("=") else ("" if v is None else str(v))
+
+    @formula.setter
+    def formula(self, f):
+        self.cells[self.addr] = f
+
+    @property
+    def value(self):
+        return self.cells.get(self.addr)
+
+    @value.setter
+    def value(self, v):
+        self.cells[self.addr] = v
+
+
+class _FakeBook:
+    def __init__(self, path):
+        self.fullname = path
+        self.cells = {"B1": 100, "B3": "=B1*B2"}
+        self.saved = self.closed = 0
+        self.sheets = {"Model": type("S", (), {"range": lambda _s, a: _FakeRange(self.cells, a)})()}
+
+    def save(self):
+        self.saved += 1
+
+    def close(self):
+        self.closed += 1
+
+
+def test_xlwings_path_drives_excel_and_reports_undo(monkeypatch):
+    """xlwings cannot run on Linux CI; a fake module checks the control flow (open hidden app, write, save, quit)."""
+    import sys
+    import types
+
+    import app.excel as X
+    from app.state import S
+
+    opened = []
+
+    class FakeApp:
+        def __init__(self, visible=True, add_book=True):
+            assert visible is False and add_book is False
+            self.quit_called = False
+            self.books = types.SimpleNamespace(open=self._open)
+
+        def _open(self, path, update_links=True):
+            b = _FakeBook(path)
+            opened.append((self, b))
+            return b
+
+        def quit(self):
+            self.quit_called = True
+
+    fake = types.ModuleType("xlwings")
+    fake.apps = []
+    fake.App = FakeApp
+    monkeypatch.setitem(sys.modules, "xlwings", fake)
+    monkeypatch.setattr(X, "xlwings_available", lambda: True)
+    monkeypatch.setenv("TERMINAL_EXCEL_WRITE", "auto")
+    root = S.excel.roots[0]
+    make_book(root / "xw.xlsx")
+    res = S.excel.write_cells("0/xw.xlsx", "Model", {"B1": "200", "B3": "=B1*3"})
+    assert res["mode"] == "xlwings" and res["attached_to_open_workbook"] is False
+    app_, book = opened[0]
+    assert book.cells["B1"] == 200 and book.cells["B3"] == "=B1*3"
+    assert res["before"] == {"B1": 100, "B3": "=B1*B2"}
+    assert book.saved == 1 and book.closed == 1 and app_.quit_called
+
+    # already open in the user's Excel -> attach, save, but do NOT close their window
+    user_book = _FakeBook(str((root / "xw.xlsx").resolve()))
+    fake.apps = [types.SimpleNamespace(books=[user_book])]
+    res = S.excel.write_cells("0/xw.xlsx", "Model", {"B1": "7"})
+    assert res["attached_to_open_workbook"] is True and user_book.cells["B1"] == 7
+    assert user_book.saved == 1 and user_book.closed == 0
 
 
 def test_api_smoke_sim():

@@ -27,3 +27,24 @@
 
 ### 次の人へ
 - HANDOFF §7 の 1 番（実データでの接続確認）から着手してください
+
+## 2026-11-02 — Claude Code（同じセッションの続き）
+
+### ユーザーからの回答と要望
+- 普段は Windows。Excel は HTML からも編集したい（R17、R18）
+
+### やったこと
+- `backend/app/excel.py`：書き込みモードを `auto`（既定）、`xlwings`、`openpyxl`、`off` に整理
+  - xlwings：開いているブックがあれば接続し、なければ非表示の Excel で開いて書き込み、保存して閉じる。COM の呼び出しは専用スレッドで行う
+  - openpyxl：グラフやマクロなど失われる要素を含むファイルは拒否し、それ以外はバックアップを取ってから書き込む
+  - 書き込み前の内容（`before`）を返すようにし、UNDO に使う
+  - ターミナル自身の書き込みは「外部での保存」として通知しない
+  - 入力値の解釈を Excel に合わせた（%, 桁区切り, TRUE/FALSE, 整数）
+  - `=TV()` は初回表示から、手元にあるライブ価格で値を埋める
+- `api_excel.py`：`POST /write` が `before` と更新後の `view` を返すようにした。処理はスレッドで実行
+- `frontend/src/functions/XLS.tsx`：EDIT と WHAT-IF のモード、Excel と同じキー操作、数式バーでの編集、UNDO（Ctrl+Z）、What-if の結果をファイルへ反映（APPLY TO FILE）、保存中の表示。グリッド上の入力がコマンドラインに取られないよう `data-own-keys` を追加
+- テスト：openpyxl での編集と UNDO、グラフを含むファイルの拒否、off モード、偽の xlwings による「非表示の Excel で開く場合」と「開いているブックに接続する場合」の流れ（計 39 件、全件成功）
+- ブラウザ（Playwright）で、`5%` の入力 → 保存 → 再計算、Ctrl+Z、数式バーからの `=D4/C4-1` の入力を確認
+
+### 未確認
+- Windows 実機 + Excel での xlwings 経由の書き込み（HANDOFF §7-2）

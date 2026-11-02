@@ -1,8 +1,12 @@
-// XLS — Excel models linked to the loaded security.
-// Read-only, lossless view of what Excel calculated + formatting. Edit in real Excel ("OPEN IN EXCEL");
-// the view refreshes on save. Browser edits are WHAT-IF overrides (never written) unless the server
-// enables write-back (TERMINAL_EXCEL_WRITE=xlwings|openpyxl). See docs/EXCEL.md.
-import { useEffect, useMemo, useState } from 'react';
+// XLS — Excel models linked to the loaded security, viewable AND editable from the terminal.
+//
+// EDIT mode (default when the server can write): typing into a cell writes it to the workbook.
+//   On Windows the server drives the real Excel application via xlwings, so nothing is lost
+//   (charts, macros, pivots…) and if the workbook is open the user's Excel window updates live.
+// WHAT-IF mode: edits are evaluated in memory only (never written) — scenario playground.
+// Keyboard: arrows/Tab move · Enter/F2 edit · type to overwrite · Delete clears · Ctrl+Z undo · Esc cancel.
+// See docs/EXCEL.md.
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { useFeedMessages } from '../lib/feed';
 import { colLetter, parseAddr, renderValue } from '../lib/xlsfmt';
@@ -11,7 +15,8 @@ import { useTerminal } from '../ctx';
 
 interface Cell { v: any; f?: string; nf?: string; s?: number; calc?: boolean }
 interface Sheet { name: string; state: string; max_row: number; max_col: number; truncated: boolean; merged: string[]; cols: Record<string, { w?: number; hidden?: boolean }>; rows: Record<string, { h?: number; hidden?: boolean }>; cells: Record<string, Cell>; gridlines: boolean; tab_color?: string }
-interface View { id: string; name: string; mtime: number; sheets: Sheet[]; styles: any[]; write_mode: string; lossy_parts: string[]; engine_filled?: number }
+interface View { id: string; name: string; mtime: number; sheets: Sheet[]; styles: any[]; write_mode: string; write_reason: string; lossy_parts: string[]; engine_filled?: number }
+interface UndoItem { sheet: string; before: Record<string, any>; label: string }
 
 const BORDER: Record<string, string> = { thin: '1px solid #000', medium: '2px solid #000', thick: '3px solid #000', dashed: '1px dashed #000', dotted: '1px dotted #000', double: '3px double #000', hair: '1px solid #999' };
 
@@ -26,12 +31,20 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
   const [sel, setSel] = useState<string>('A1');
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [mode, setMode] = useState<'edit' | 'whatif'>('edit');
+  const [saving, setSaving] = useState(false);
+  const [undo, setUndo] = useState<UndoItem[]>([]);
   const [overrides, setOverrides] = useState<Record<string, any>>({});
   const [changed, setChanged] = useState<Record<string, any>>({});
   const [liveVals, setLiveVals] = useState<Record<string, any>>({});
   const [stale, setStale] = useState<string[]>([]);
   const [limit, setLimit] = useState(300);
   const [live, setLive] = useState(false);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const fbarRef = useRef<HTMLInputElement>(null);
+
+  const canWrite = !!view && view.write_mode !== 'off';
+  const editMode = mode === 'edit' && canWrite;
 
   useEffect(() => {
     if (!fileId && linked.data?.length) setFileId(linked.data[0].id);
@@ -53,16 +66,21 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     setView(null);
     setOverrides({});
     setChanged({});
+    setUndo([]);
     load();
   }, [fileId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (view && view.write_mode === 'off') setMode('whatif');
+  }, [view?.write_mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFeedMessages((m) => {
     if (m.type === 'excel_changed' && m.id === fileId) {
-      toast(`${view?.name ?? 'workbook'} saved in Excel — reloaded`);
+      toast(`${view?.name ?? 'workbook'} が Excel で保存されました — 再読込`);
       load();
     }
   });
 
+  // ---------------------------------------------------------------- what-if
   async function recompute(ov: Record<string, any>) {
     if (!fileId) return;
     if (!Object.keys(ov).length && !live) return (setChanged({}), setStale([]));
@@ -82,6 +100,29 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     return () => clearInterval(t);
   }, [live, overrides]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---------------------------------------------------------------- writing
+  async function write(sheetName: string, updates: Record<string, any>, label: string, pushUndo = true) {
+    if (!view) return;
+    setSaving(true);
+    try {
+      const r = await api.post<any>('/excel/write', { id: view.id, sheet: sheetName, updates });
+      if (pushUndo) setUndo((u) => [...u.slice(-49), { sheet: sheetName, before: r.before, label }]);
+      setView(r.view);
+    } catch (e: any) {
+      toast(`保存できません: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function doUndo() {
+    const last = undo[undo.length - 1];
+    if (!last) return;
+    setUndo((u) => u.slice(0, -1));
+    await write(last.sheet, Object.fromEntries(Object.entries(last.before).map(([k, v]) => [k, v ?? ''])), 'undo', false);
+    toast(`UNDO ${last.label}`);
+  }
+
   const sheet = view?.sheets[sheetIdx];
   const merges = useMemo(() => {
     const anchor: Record<string, [number, number]> = {};
@@ -95,35 +136,70 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     return { anchor, covered };
   }, [sheet]);
 
-  function commitEdit(addr: string, value: string) {
+  function commit(addr: string, value: string, move: 'down' | 'right' | 'none' = 'down') {
     setEditing(null);
     if (!sheet) return;
-    const key = `${sheet.name}!${addr}`;
-    const ov = { ...overrides };
-    if (value === '' && !(key in overrides)) return;
-    ov[key] = value;
-    setOverrides(ov);
-    recompute(ov);
+    const cur = sheet.cells[addr];
+    const original = cur?.f ?? (cur?.v == null ? '' : String(cur.v));
+    if (editMode) {
+      if (value !== original) write(sheet.name, { [addr]: value }, `${sheet.name}!${addr}`);
+    } else {
+      const key = `${sheet.name}!${addr}`;
+      if (value === original && !(key in overrides)) return;
+      const ov = { ...overrides, [key]: value };
+      setOverrides(ov);
+      recompute(ov);
+    }
+    if (move !== 'none') moveSel(move === 'down' ? 1 : 0, move === 'right' ? 1 : 0);
+    gridRef.current?.focus();
   }
 
-  async function writeBack() {
-    if (!view || !sheet) return;
-    const updates: Record<string, any> = {};
-    for (const [k, v] of Object.entries(overrides)) {
-      const [sh, a] = k.split('!');
-      if (sh === sheet.name) updates[a] = v;
+  function moveSel(dr: number, dc: number) {
+    if (!sheet) return;
+    const [r, c] = parseAddr(sel);
+    const nr = Math.max(1, Math.min(r + dr, Math.max(sheet.max_row + 50, 1)));
+    const nc = Math.max(1, Math.min(c + dc, Math.max(sheet.max_col + 10, 1)));
+    setSel(`${colLetter(nc)}${nr}`);
+  }
+
+  function startEdit(addr: string, initial?: string) {
+    if (!sheet) return;
+    const key = `${sheet.name}!${addr}`;
+    const cl = sheet.cells[addr];
+    setSel(addr);
+    setEditing(addr);
+    setDraft(initial ?? String(!editMode && key in overrides ? overrides[key] : cl?.f ?? cl?.v ?? ''));
+  }
+
+  function onGridKey(e: React.KeyboardEvent) {
+    if (editing || !sheet) return;
+    const k = e.key;
+    if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (editMode) doUndo();
+      return;
     }
-    if (!confirm(`Write ${Object.keys(updates).length} cell(s) to ${view.name} (${view.write_mode})? A backup is made first in openpyxl mode.`)) return;
-    try {
-      await api.post('/excel/write', { id: view.id, sheet: sheet.name, updates });
-      toast('written');
-      setOverrides({});
-      setChanged({});
-      load();
-    } catch (e: any) {
-      toast(e.message);
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const moves: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Tab: [0, e.shiftKey ? -1 : 1] };
+    if (moves[k]) {
+      e.preventDefault();
+      moveSel(...moves[k]);
+    } else if (k === 'Enter' || k === 'F2') {
+      e.preventDefault();
+      startEdit(sel);
+    } else if (k === 'Delete' || k === 'Backspace') {
+      e.preventDefault();
+      commit(sel, '', 'none');
+    } else if (k.length === 1) {
+      e.preventDefault();
+      startEdit(sel, k); // typing overwrites, like Excel
     }
   }
+
+  // keep the selected cell visible
+  useEffect(() => {
+    gridRef.current?.querySelector('td.sel')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [sel]);
 
   async function upload(f: File) {
     const fd = new FormData();
@@ -140,8 +216,10 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
   const selKey = sheet ? `${sheet.name}!${sel}` : '';
   const shown = (addr: string, c?: Cell) => {
     const key = `${sheet!.name}!${addr}`;
-    if (key in overrides) return { v: overrides[key], cls: 'over' };
-    if (key in changed) return { v: changed[key], cls: 'changed' };
+    if (!editMode) {
+      if (key in overrides) return { v: overrides[key], cls: 'over' };
+      if (key in changed) return { v: changed[key], cls: 'changed' };
+    }
     if (key in liveVals) return { v: liveVals[key], cls: 'calc' };
     return { v: c?.v, cls: c?.calc ? 'calc' : '' };
   };
@@ -150,6 +228,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     if (d?.hidden) return 0;
     return Math.round((d?.w ?? 8.43) * 7 + 5);
   };
+  const fbarValue = editing === sel ? draft : !editMode && selKey in overrides ? String(overrides[selKey]) : String(cell?.f ?? cell?.v ?? '');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -174,30 +253,77 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
       </div>
       {view && (
         <div className="toolbar">
-          <button className="tb green" onClick={() => api.post('/excel/open', { id: view.id }).then(() => toast('opening in Excel on the server machine…'), (e) => toast(e.message))}>OPEN IN EXCEL</button>
+          <button className={`tb ${editMode ? 'on' : ''}`} disabled={!canWrite} onClick={() => setMode('edit')} title={view.write_reason}>
+            EDIT
+          </button>
+          <button className={`tb ${mode === 'whatif' || !canWrite ? 'on' : ''}`} onClick={() => setMode('whatif')} title="ファイルに書き込まず、メモリ上で再計算">
+            WHAT-IF
+          </button>
+          {editMode ? (
+            <>
+              <span className={canWrite ? 'up' : 'muted'}>● {view.write_mode === 'xlwings' ? 'Excel 本体経由で保存' : '直接保存 (自動バックアップ)'}</span>
+              <button className="tb" disabled={!undo.length || saving} onClick={doUndo} title="Ctrl+Z">
+                UNDO{undo.length ? ` (${undo.length})` : ''}
+              </button>
+              {saving && <span className="yellow">SAVING…</span>}
+            </>
+          ) : (
+            <>
+              <span className="muted">{Object.keys(overrides).length} override(s)</span>
+              <button className="tb" disabled={!Object.keys(overrides).length} onClick={() => (setOverrides({}), setChanged({}), setStale([]))}>RESET</button>
+              {canWrite && Object.keys(overrides).length > 0 && (
+                <button
+                  className="tb red"
+                  onClick={async () => {
+                    const bySheet: Record<string, Record<string, any>> = {};
+                    for (const [k, v] of Object.entries(overrides)) {
+                      const i = k.lastIndexOf('!');
+                      (bySheet[k.slice(0, i)] ??= {})[k.slice(i + 1)] = v;
+                    }
+                    if (!confirm(`What-if の ${Object.keys(overrides).length} セルをファイルに反映しますか?`)) return;
+                    for (const [sh, ups] of Object.entries(bySheet)) await write(sh, ups, `apply what-if (${Object.keys(ups).length})`);
+                    setOverrides({});
+                    setChanged({});
+                  }}
+                >
+                  APPLY TO FILE
+                </button>
+              )}
+              {!canWrite && <span className="muted" title={view.write_reason}>read-only: {view.write_reason}</span>}
+            </>
+          )}
+          <button className={`tb ${live ? 'on' : ''}`} onClick={() => setLive(!live)} title="=TV() のライブ値を 3 秒ごとに更新">LIVE</button>
+          <span className="lbl">│</span>
+          <button className="tb green" onClick={() => api.post('/excel/open', { id: view.id }).then(() => toast('Excel で開いています…'), (e) => toast(e.message))}>OPEN IN EXCEL</button>
           <a className="tb" href={api.url('/excel/download', { id: view.id })}>DOWNLOAD</a>
           <button className="tb" onClick={() => load()}>RELOAD</button>
-          <span className="lbl">WHAT-IF</span>
-          <span className="muted">{Object.keys(overrides).length} override(s)</span>
-          <button className="tb" disabled={!Object.keys(overrides).length} onClick={() => (setOverrides({}), setChanged({}), setStale([]))}>RESET</button>
-          <button className={`tb ${live ? 'on' : ''}`} onClick={() => setLive(!live)} title="re-evaluate every 3s (live TV() quotes)">LIVE</button>
-          {view.write_mode !== 'off' ? (
-            <button className="tb red" disabled={!Object.keys(overrides).length} onClick={writeBack}>WRITE TO FILE ({view.write_mode})</button>
-          ) : (
-            <span className="muted" title="set TERMINAL_EXCEL_WRITE=xlwings to enable lossless write-back">read-only (edit in Excel)</span>
-          )}
           {view.lossy_parts.length > 0 && <span className="badge warn" title={view.lossy_parts.join(', ')}>contains: {view.lossy_parts.slice(0, 3).join(', ')}</span>}
-          {(view.engine_filled ?? 0) > 0 && <span className="badge warn" title="file has no Excel-cached results (saved by another tool); dotted cells were computed by the terminal engine">{view.engine_filled} cell(s) engine-computed</span>}
+          {(view.engine_filled ?? 0) > 0 && <span className="badge warn" title="Excel が計算した結果がファイルにないため、点線のセルはターミナルのエンジンで計算した値です (Excel で開いて保存すると正式な値になります)">{view.engine_filled} cell(s) engine-computed</span>}
           {stale.length > 0 && <span className="muted" title={stale.join(', ')}>{stale.length} cell(s) use functions not in the engine — Excel value kept</span>}
         </div>
       )}
       {view && (
         <div className="fbar">
           <span className="addr">{sel}</span>
-          <span className="f">
-            {cell?.f ? <span className="yellow">{cell.f}</span> : String(cell?.v ?? '')}
-            {selKey in overrides && <span className="blue"> → override: {String(overrides[selKey])}</span>}
-          </span>
+          <span className="muted">fx</span>
+          <input
+            ref={fbarRef}
+            className="inp"
+            style={{ flex: 1, color: editMode ? '#ffd84a' : '#5ea9ff' }}
+            value={fbarValue}
+            onFocus={() => {
+              if (editing !== sel) startEdit(sel);
+            }}
+            onChange={(e) => {
+              if (editing !== sel) startEdit(sel);
+              setDraft(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit(sel, draft);
+              if (e.key === 'Escape') (setEditing(null), gridRef.current?.focus());
+            }}
+            placeholder={editMode ? '値または =数式 を入力して Enter で保存' : 'What-if: 値または =数式 (ファイルは変更しない)'}
+          />
         </div>
       )}
       <ErrorBox error={err || linked.error} />
@@ -210,7 +336,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
         </div>
       )}
       {sheet && (
-        <div style={{ flex: 1, overflow: 'auto', background: '#fff' }}>
+        <div ref={gridRef} tabIndex={0} data-own-keys onKeyDown={onGridKey} style={{ flex: 1, overflow: 'auto', background: '#fff', outline: 'none' }}>
           <table className={`xl ${sheet.gridlines ? '' : 'nogrid'}`}>
             <thead>
               <tr>
@@ -251,20 +377,25 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
                           colSpan={span?.[1]}
                           style={style}
                           className={`${sel === addr ? 'sel' : ''} ${cls}`}
-                          onClick={() => setSel(addr)}
-                          onDoubleClick={() => {
+                          onClick={() => {
+                            if (editing && editing !== addr) commit(editing, draft, 'none');
                             setSel(addr);
-                            setEditing(addr);
-                            const key = `${sheet.name}!${addr}`;
-                            setDraft(String(key in overrides ? overrides[key] : cl?.f ?? cl?.v ?? ''));
+                            gridRef.current?.focus();
                           }}
+                          onDoubleClick={() => startEdit(addr)}
                           title={cl?.f ?? undefined}
                         >
                           {editing === addr ? (
-                            <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={() => commitEdit(addr, draft)} onKeyDown={(e) => {
-                              if (e.key === 'Enter') commitEdit(addr, draft);
-                              if (e.key === 'Escape') setEditing(null);
-                            }} />
+                            <input
+                              autoFocus
+                              value={draft}
+                              onChange={(e) => setDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') commit(addr, draft, 'down');
+                                else if (e.key === 'Tab') (e.preventDefault(), commit(addr, draft, 'right'));
+                                else if (e.key === 'Escape') (setEditing(null), gridRef.current?.focus());
+                              }}
+                            />
                           ) : (
                             rendered.text
                           )}

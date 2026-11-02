@@ -71,10 +71,10 @@
 | GET | /files | ライブラリ内のファイル一覧と書き込みモード |
 | GET | /for_symbol?symbol | 紐付いたファイル（manual が先、auto が後） |
 | POST | /link `{symbol, file_id, linked}` | 手動での紐付けと解除 |
-| GET | /view?id | シート、セル（v, f, nf, s, calc）、スタイル、結合、列幅、行高、lossy_parts |
+| GET | /view?id | シート、セル（v, f, nf, s, calc）、スタイル、結合、列幅、行高、lossy_parts、write_mode（このファイルで実際に使える書き込み方式。off なら編集不可）、write_reason |
 | POST | /whatif `{id, overrides:{"Sheet!B5": 1.2}}` | 変わったセル（changed）、ライブ値（live）、エンジン非対応のセル（stale）。ファイルは変更しない |
 | POST | /open `{id}` | サーバー機で Excel を起動（ローカル利用時のみ有効） |
-| POST | /write `{id, sheet, updates}` | 書き戻し（TERMINAL_EXCEL_WRITE が必要） |
+| POST | /write `{id, sheet, updates:{"B5":"5%","C7":"=C6/B6-1"}}` | セルの編集（値または数式）。返り値は `mode`（xlwings／openpyxl）、`before`（UNDO 用の変更前の内容）、`view`（更新後の表示） |
 | POST | /upload (multipart) | data/workbooks/uploads へ保存 |
 | GET | /download?id | ファイルのダウンロード |
 

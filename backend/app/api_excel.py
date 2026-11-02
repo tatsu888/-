@@ -55,7 +55,7 @@ async def link(req: LinkReq):
 
 @router.get("/view")
 async def view(id: str):
-    return _wrap(S.excel.view, id)
+    return _wrap(S.excel.view, id, _quote)
 
 
 @router.get("/download")
@@ -102,7 +102,15 @@ class WriteReq(BaseModel):
 
 @router.post("/write")
 async def write(req: WriteReq):
-    return _wrap(S.excel.write_cells, req.id, req.sheet, req.updates)
+    """Edit cells (values or "=formulas"). Returns previous contents (for undo) and the refreshed view."""
+    import asyncio
+
+    try:
+        res = await asyncio.to_thread(S.excel.write_cells, req.id, req.sheet, req.updates)
+    except ExcelError as e:
+        raise HTTPException(e.status, str(e)) from e
+    res["view"] = _wrap(S.excel.view, req.id, _quote)
+    return res
 
 
 @router.post("/upload")

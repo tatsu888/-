@@ -23,7 +23,7 @@
 | **DES** | 銘柄概要 | クォート、パフォーマンス（1D〜1Y、YTD、ボラティリティ、52 週レンジ）、ファンダメンタルズ（スキャナー）、紐付いた Excel |
 | **TA** | テクニカル判定 | 1H, 4H, D, W のゲージと各指標の投票 |
 | **N** | ニュース | 銘柄ニュースと TOP NEWS |
-| **XLS** | Excel モデル | 紐付け、表示、What-if、LIVE、Excel で開く、ダウンロード、アップロード、（書き戻し）。[EXCEL.md](EXCEL.md) |
+| **XLS** | Excel モデル | 紐付け、表示、**EDIT（HTML から編集し、Excel に保存）**、WHAT-IF（ファイルを変えずに試算）、UNDO、LIVE、Excel で開く、ダウンロード、アップロード。キー操作：矢印・Tab で移動、入力で上書き、Enter・F2 で編集、Delete で消去、Ctrl+Z で元に戻す、Esc で取り消し。[EXCEL.md](EXCEL.md) |
 | **NOTE** | メモ | 銘柄ごとのメモ（自動保存） |
 | **BT** | バックテスト | sma_cross, ema_cross, rsi_reversion, breakout, buy_hold、手数料、ロング／ショート |
 | **W** | ウォッチリスト | 複数のリスト、追加と削除、並べ替え、点滅表示 |
