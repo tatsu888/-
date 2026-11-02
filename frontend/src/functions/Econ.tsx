@@ -54,7 +54,7 @@ function UpdateButton() {
     <span className="muted" style={{ fontSize: 10, marginLeft: 8 }}>
       <button className="tb" onClick={run}>⟳ 更新</button>
       {s && <> {s.job.running ? <span className="yellow">更新中 {s.job.done}/{s.job.total}</span> : `最終 ${s.last_sweep ? s.last_sweep.replace('T', ' ').slice(5, 16) : '—'}`} · {s.total} 系列 · 自動 {s.auto ? 'ON' : s.auto_env ? 'OFF' : 'OFF（TERMINAL_ECON_AUTO=0）'}
-        {!s.keys.ESTAT_APP_ID && <span className="down"> · ESTAT_APP_ID 未設定</span>}{!s.keys.FRED_API_KEY && <span className="muted"> · FRED は鍵なし（CSV）</span>}
+        {!s.keys.ESTAT_APP_ID && <span className="down"> · ESTAT_APP_ID {s.key_problems?.ESTAT_APP_ID ? '要確認' : '未設定'}</span>}{!s.keys.FRED_API_KEY && <span className="muted"> · FRED は鍵なし（CSV）</span>}
         <button className="tb mini" onClick={() => st.reload()}>↻</button></>}
     </span>
   );
@@ -357,7 +357,7 @@ function Sources({ open }: { open: (id: string) => void }) {
                 ))}</tbody></table>
               <div className="pad" style={{ fontSize: 11 }}>
                 <div>FRED_API_KEY {s.keys.FRED_API_KEY ? <span className="up">設定済み</span> : <span className="muted">なし（CSV で取得。検索には鍵が必要）</span>}</div>
-                <div>ESTAT_APP_ID {s.keys.ESTAT_APP_ID ? <span className="up">設定済み</span> : <span className="down">なし — 日本の公式統計（e-Stat）に必要。e-Stat で無料登録し .env に書く</span>}</div>
+                <div>ESTAT_APP_ID {s.keys.ESTAT_APP_ID ? <span className="up">設定済み</span> : s.key_problems?.ESTAT_APP_ID ? <span className="down">要確認 — {s.key_problems.ESTAT_APP_ID}</span> : <span className="down">なし — 日本の公式統計（e-Stat）に必要。e-Stat にログイン → マイページ →「API 機能（アプリケーション ID 発行）」で発行し、.env に書く</span>}</div>
                 <div>
                   <label><input type="checkbox" checked={!!s.config?.auto} onChange={(e) => call(() => api.put('/econ/config', { auto: e.target.checked }), () => toast(e.target.checked ? '自動更新 ON' : '自動更新 OFF'))} /> 自動更新</label>
                   <span className="muted"> · 間隔 </span>

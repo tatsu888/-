@@ -43,6 +43,19 @@ def estat_app_id() -> str | None:
     return os.environ.get("ESTAT_APP_ID") or None
 
 
+def estat_app_id_problem(v: str | None = None) -> str | None:
+    """The e-Stat API needs the APPLICATION ID issued on e-Stat's My Page — not the login e-mail address."""
+    v = (v if v is not None else estat_app_id() or "").strip()
+    if not v:
+        return None
+    if "@" in v:
+        return ("ESTAT_APP_ID にメールアドレス（ログイン ID）が入っている。e-Stat にログイン → マイページ →"
+                "「API 機能（アプリケーション ID 発行）」で発行した ID（英数字）を設定する")
+    if not re.fullmatch(r"[0-9A-Za-z]{20,64}", v):
+        return "ESTAT_APP_ID の形式が違う（e-Stat のマイページで発行した英数字のアプリケーション ID を設定する）"
+    return None
+
+
 # ---------------------------------------------------------------------------------------------------
 # dates & numbers
 # ---------------------------------------------------------------------------------------------------

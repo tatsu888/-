@@ -23,7 +23,7 @@
 | データ源 | 取得方法 | 鍵 |
 |---|---|---|
 | FRED（セントルイス連銀：BEA・BLS・Census・FRB・地区連銀・ICE BofA・BIS・IMF・OECD の転載） | `fredgraph.csv?id=…`（鍵なし）／鍵があれば API | `FRED_API_KEY`（任意。検索に必要） |
-| e-Stat（政府統計の総合窓口：総務省・厚労省・財務省・経産省・国交省・内閣府） | REST API 3.0（JSON） | **`ESTAT_APP_ID`（必須。e-Stat で無料登録）** |
+| e-Stat（政府統計の総合窓口：総務省・厚労省・財務省・経産省・国交省・内閣府） | REST API 3.0（JSON） | **`ESTAT_APP_ID`（必須）＝ログインのメールアドレスではなく、e-Stat にログイン → マイページ →「API 機能（アプリケーション ID 発行）」で発行する英数字の ID**。メールアドレスを入れると SOURCES に「要確認」と出る |
 | ECB Data Portal | SDMX（CSV） | なし |
 | Eurostat | JSON-stat 2.0 | なし |
 | 世界銀行 WDI | JSON | なし |

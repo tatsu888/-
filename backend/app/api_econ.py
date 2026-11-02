@@ -106,6 +106,9 @@ async def fetch_entry(c: httpx.AsyncClient, e: dict[str, Any], rec: dict[str, An
         app = SRC.estat_app_id()
         if not app:
             raise SRC.SourceError("ESTAT_APP_ID が未設定（.env）— e-Stat で無料のアプリケーション ID を取得")
+        bad = SRC.estat_app_id_problem(app)
+        if bad:
+            raise SRC.SourceError(bad)
         resolved = e.get("resolved")              # pinned by the user (override)
         spec_key = json.dumps(code, ensure_ascii=False, sort_keys=True)
         if not resolved:
@@ -513,7 +516,8 @@ async def status_ep():
         if row["status"] == "error":
             errors.append({"id": e["id"], "name": e["name"], "source": e["source"], "error": row["error"]})
     return {"job": _job, "sources": by_src, "errors": errors[:200], "keys": {"FRED_API_KEY": bool(SRC.fred_key()),
-            "ESTAT_APP_ID": bool(SRC.estat_app_id())}, "last_sweep": _read("state.json", {}).get("last_sweep"),
+            "ESTAT_APP_ID": bool(SRC.estat_app_id()) and not SRC.estat_app_id_problem()},
+            "key_problems": {"ESTAT_APP_ID": SRC.estat_app_id_problem()}, "last_sweep": _read("state.json", {}).get("last_sweep"),
             "auto": os.environ.get("TERMINAL_ECON_AUTO", "1") != "0" and config().get("auto", True), "config": config(),
             "auto_env": os.environ.get("TERMINAL_ECON_AUTO", "1") != "0",
             "due_hours": DUE_H, "total": len(entries())}

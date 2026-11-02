@@ -132,3 +132,9 @@ def test_fred_fetch_csv_and_api_key(monkeypatch):
     monkeypatch.setenv("FRED_API_KEY", "K")
     assert asyncio.run(go()) == [("2026-09-01", 159150.0)] and "api_key=K" in seen[-1]
     assert json.dumps(S.source_url({"source": "fred", "code": "PAYEMS"})).count("fred.stlouisfed.org/series/PAYEMS") == 1
+
+
+def test_estat_app_id_checks():
+    assert "メールアドレス" in S.estat_app_id_problem("someone@example.com")
+    assert S.estat_app_id_problem("abc") and S.estat_app_id_problem("0123456789abcdef0123456789abcdef01234567") is None
+    assert S.estat_app_id_problem("") is None

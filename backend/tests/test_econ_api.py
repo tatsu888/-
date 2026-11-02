@@ -139,3 +139,20 @@ def test_upload_date_parsing():
     assert AE.parse_date_cell("2026/02/15") == "2026-02-15" and AE.parse_date_cell("2026-03") == "2026-03-01"
     assert AE.parse_date_cell(46000) == (dt.date(1899, 12, 30) + dt.timedelta(days=46000)).isoformat()
     assert AE.parse_date_cell("合計") is None
+
+
+def test_estat_login_email_is_reported_clearly(monkeypatch):
+    """A login e-mail in ESTAT_APP_ID gives a clear message instead of an e-Stat authentication error."""
+    import asyncio
+    from app.main import app
+
+    monkeypatch.setenv("ESTAT_APP_ID", "someone@example.com")
+    with TestClient(app) as c:
+        st = c.get("/api/econ/status").json()
+        assert st["keys"]["ESTAT_APP_ID"] is False and "メールアドレス" in st["key_problems"]["ESTAT_APP_ID"]
+    e = next(x for x in AE.entries() if x["id"] == "JP.CPI")
+    try:
+        asyncio.run(AE.fetch_entry(None, e, None))
+        raise AssertionError("should fail")
+    except SRC.SourceError as ex:
+        assert "マイページ" in str(ex)
