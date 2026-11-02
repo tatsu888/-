@@ -24,7 +24,7 @@ export function TickerTape() {
   );
 }
 
-const KEYS = ['BRIEF', 'TOP', 'COV', 'STK', 'GP', 'DES', 'TA', 'N', 'XLS', 'RV', 'MRGN', 'TEAR', '|', 'W', 'WEI', 'FX', 'RATES', 'CMDTY', 'CRYP', 'MOST', 'SCRN', 'HMAP', '|', 'TRIN', 'SCORE', 'RULE', 'GATE', 'GLQ', 'THEME', 'RRG', 'XRAY', 'PFND', 'TRAK', '|', 'PROP', 'MACRO', 'ECST', 'FCTR', 'FLOW', 'TRND', 'TXT', 'FACT', 'LAG', 'CORR', 'BETA', 'SPRD', 'SEAS', 'EVT', 'BT', 'OV', 'MODEL', '|', 'PORT', 'ALRT', 'ECO', 'EARN', 'NOTE', 'SRC', 'HELP'];
+const KEYS = ['BRIEF', 'TOP', 'COV', 'STK', 'GP', 'DES', 'TA', 'N', 'XLS', 'RV', 'MRGN', 'TEAR', '|', 'W', 'WEI', 'FX', 'RATES', 'CMDTY', 'CRYP', 'MOST', 'SCRN', 'HMAP', '|', 'TRIN', 'ALIGN', 'CHECK', 'EVAL', 'SCORE', 'RULE', 'GATE', 'GLQ', 'THEME', 'RRG', 'FEXP', 'XRAY', 'PFND', 'TRAK', '|', 'PROP', 'MACRO', 'ECST', 'FCTR', 'FLOW', 'TRND', 'TXT', 'FACT', 'LAG', 'CORR', 'BETA', 'SPRD', 'SEAS', 'EVT', 'BT', 'OV', 'MODEL', '|', 'PORT', 'ALRT', 'ECO', 'EARN', 'NOTE', 'SRC', 'HELP'];
 
 export interface WorkspaceApi {
   names: string[];

@@ -173,6 +173,14 @@ websocket の通知：`earnings`（決算日の更新）、`earnings_alert`（�
 
 WebSocket：判定が変わると `{"type":"trinity","changes":[...],"at":...}` を配信。
 
+## 三位一体の分析（/api/trinity）— [FRAMEWORK.md](FRAMEWORK.md) §12
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /trinity/align | 一致と衝突の地図（3×3、状態、裁定ルール、研究候補、ブックの一致／衝突、前日からの変化）。AUTO の結果がなければ 404 |
+| POST | /trinity/check `{symbol, side, weight, pair_with, short_type, expected_downside_pct, pw, xw, xl, source}` | 発注前チェック（関門①〜⑤の項目と状態、発注可／条件付き／未確認／見送り、発注後のブック、ペア指標、ケリー） |
+| GET | /trinity/eval?parts=auto,m,l&horizons=5,21,63&refresh | 答え合わせ（auto）とマクロ層（m）・需給層（l）の過去検証（1 時間保存） |
+
 ## 投資の三位一体（/api/framework）— [FRAMEWORK.md](FRAMEWORK.md)
 
 | Method | Path | 説明 |
@@ -310,3 +318,12 @@ websocket：`info_alert`（カバレッジ・キーワードの当たり、カ�
 |---|---|---|
 | GET | /settings/keys | API キーの状態（設定済みか・伏せ字・形式の問題）と `.env` の場所 |
 | PUT | /settings/keys `{key, value}` | `.env` に書き込み、すぐに有効にする（空で削除）。形式違い・未知のキーは 400 |
+
+## ファクター分析（/api/fexp）— [ANALYTICS.md](ANALYTICS.md) §26b
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /fexp?target&est&window&roll&end_offset&factors&roll_factors&source | target＝記号・`PORT`・`TSE:6857,TSE:8035`。感応度、リスク分解、寄与、推移、地図、要因の一覧、`key`（シナリオ用） |
+| POST | /fexp/scenario `{key, shocks: {要因 ID: % または bp}}` | 予想変化 ± 1 標準誤差と要因ごとの内訳（モデルは 15 分保存。切れたら 409） |
+| GET | /fexp/coverage?est&end_offset&source&limit | カバレッジ全銘柄の主な感応度・R²・個社の割合・1 か月の寄与 |
+

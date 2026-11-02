@@ -12,11 +12,12 @@ import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { LineChart } from '../components/LineChart';
 import { takeKellyPrefill } from './Insight';
 import { WindowSlider, type WindowValue } from '../components/WindowSlider';
+import { AlignTab, CheckTab, EvalTab } from './TrinityEval';
 
-export const TRIN_TABS = ['AUTO', 'MAP', 'SCORE', 'KELLY', 'RULE', 'PAIR', 'SHRT', 'CHIP', 'GATE', 'GLQ'] as const;
+export const TRIN_TABS = ['AUTO', 'ALIGN', 'CHECK', 'EVAL', 'MAP', 'SCORE', 'KELLY', 'RULE', 'PAIR', 'SHRT', 'CHIP', 'GATE', 'GLQ'] as const;
 type Tab = (typeof TRIN_TABS)[number];
 const TAB_LABEL: Record<Tab, string> = {
-  AUTO: '自動判定', MAP: '三位一体', SCORE: '評点表', KELLY: 'ケリー', RULE: '六層規律', PAIR: 'ペア', SHRT: '空売り8', CHIP: '天井/底', GATE: '関門', GLQ: '成長×流動性',
+  AUTO: '自動判定', ALIGN: '一致と衝突', CHECK: '発注前チェック', EVAL: '答え合わせ', MAP: '三位一体', SCORE: '評点表', KELLY: 'ケリー', RULE: '六層規律', PAIR: 'ペア', SHRT: '空売り8', CHIP: '天井/底', GATE: '関門', GLQ: '成長×流動性',
 };
 const ts = (d: string) => Math.floor(Date.parse(d) / 1000);
 const stCls = (s: string) => (s === 'PASS' ? 'up' : s === 'FAIL' ? 'down' : s === 'WARN' ? 'yellow' : 'muted');
@@ -28,6 +29,12 @@ function useMeta() {
 
 export function TRIN({ symbol, tab: initial, onPick }: { symbol: string; tab?: string; onPick?: (s: string) => void }) {
   const [tab, setTab] = useState<Tab>((TRIN_TABS as readonly string[]).includes(initial || '') ? (initial as Tab) : 'AUTO');
+  const [checkSym, setCheckSym] = useState<string | null>(null);
+  const go = (t: string, sym?: string) => {
+    if (sym && t === 'CHECK') setCheckSym(sym);
+    if (sym && t !== 'CHECK') onPick?.(sym);
+    setTab(t as Tab);
+  };
   useEffect(() => {
     if (initial && (TRIN_TABS as readonly string[]).includes(initial)) setTab(initial as Tab);
   }, [initial]);
@@ -41,6 +48,9 @@ export function TRIN({ symbol, tab: initial, onPick }: { symbol: string; tab?: s
         ))}
       </div>
       {tab === 'AUTO' && <AutoTab symbol={symbol} onPick={onPick} go={setTab} />}
+      {tab === 'ALIGN' && <AlignTab go={go} />}
+      {tab === 'CHECK' && <CheckTab key={checkSym || symbol} symbol={checkSym || symbol} />}
+      {tab === 'EVAL' && <EvalTab />}
       {tab === 'MAP' && <MapTab symbol={symbol} go={setTab} />}
       {tab === 'SCORE' && <ScoreTab symbol={symbol} onPick={onPick} />}
       {tab === 'KELLY' && <KellyTab />}

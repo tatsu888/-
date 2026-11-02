@@ -45,6 +45,8 @@
 | **ECST 世界経済統計**（日本＋海外 514 系列：FRED・e-Stat・中国国家統計局・ONS・BoE・ECB・Eurostat・カナダ統計局・ブラジル中銀・世界銀行・市場。Bloomberg 風の番号メニューと主要指標マトリクス。自動更新、発表とサプライズ、国別の合成指数・統計版の成長×流動性・ヒートマップ、資金フロー、局面別リターンと先行性、ファイル取り込み）[ECON.md](ECON.md) | ✅ テスト済み（各提供元の応答の形の解析、取得はスタブ）、画面確認（スクラッチの試験データ） | **実データでの取得は未検証**（この環境は全データ源が 403）。**e-Stat は `ESTAT_APP_ID` が必要**。コードの一部は廃止・変更の可能性 → ユーザーの PC の初回の取得で SOURCES に出る |
 | **BRIEF 朝のブリーフ**（市場・マクロ局面・セクター回転・スタイル・AUTO の前日からの変化・決算・ポートフォリオの決算リスク・信用残・データの状態。毎朝 AUTO が作成し .md で保存）[BRIEF.md](BRIEF.md) | ✅ テスト済み、SIM で画面確認済み | 実データでの見え方は未確認。既定の時刻 07:30 |
 | **TOP 情報ハブ**（中銀・政府・規制当局・ニュースの RSS 17、EDINET・SEC EDGAR の開示、会社ごとの Google ニュース、カバレッジ・キーワードの当たりと通知。STK・BRIEF に欄。API キーの画面 → その PC の `.env`）[INFO.md](INFO.md) | ✅ テスト済み（各形式の解析・当たりの判定・巡回と通知・開示の結び付け・キーの保存）、SIM で画面確認 | **実データでの取得は未検証**（この環境は 403）。EDINET は `EDINET_API_KEY`、EDGAR は `SEC_USER_AGENT` が必要。日銀の RSS の URL は未確認 |
+| **FEXP ファクター分析**（個別株・ETF・バスケット・PORT。市場・セクター 17 業種・スタイル・為替 5・金利・商品・海外株への感応度、東証の引け後に動く要因は翌日分も（時差の補正）、リスク分解、寄与、推移、地図、シナリオ、カバレッジ比較）[ANALYTICS.md](ANALYTICS.md) §26b | ✅ テスト済み（真の感応度を埋め込んだ合成データで推定値が戻ること、先読みなし、API）、SIM で画面確認 | 実データでの見え方は未確認。要因はすべて市場データの代理（有料のリスクモデルではない） |
+| **ALIGN・CHECK・EVAL**（三位一体を分析ツールに：一致と衝突の地図と裁定ルール、発注前の関門①〜④と六層規律の一括判定、AUTO の判定の答え合わせとマクロ層・需給層の過去検証）[FRAMEWORK.md](FRAMEWORK.md) §12 | ✅ テスト済み、SIM で画面確認 | 答え合わせは AUTO の履歴が溜まってから意味を持つ（確信度 1 と 3 が各 20 件で結論）。F は過去の時点で再現できない |
 | **決算アラート・カレンダーのバックアップ・四半期フォルダの資料**（明日決算・大きな反応の通知、毎日のバックアップと復元、資料の一覧と書き起こしの取り込み） | ✅ テスト済み、SIM で画面確認済み（明日決算の通知を AUTO の実行で確認） | 大きな反応の通知は実データのみ |
 | **OneDrive への移行**（COV の「ルートごと移す」：コピー → 確認 → 切り替え。決算カレンダーもルートの中） | ✅ テスト済み、SIM で画面確認済み | Windows + OneDrive の実機では未確認（開いている Excel はコピーできず、その場合は切り替えない） |
 | **分析の拡張**：XRAY（リターン分解・意図しないベット）、RRG（セクター回転）、THEME（テーマ・バスケット）、PFND（ペア候補）、TRAK（ベイズ勝率） | ✅ テスト済み、SIM で画面確認済み | 業種 ETF の記号は未検証。テーマのテンプレートは業種 ETF による代用 |
@@ -53,7 +55,7 @@
 | TXT（書き起こし：Lazy Prices 差分、トーン、Q&A 回避度、出典必須の AI ブリーフ検証） | ✅ | 外部通信なし |
 | TRND（Google Trends、X、StockTwits） | ⚠️ 実装済み・実通信は未検証 | X は `X_BEARER_TOKEN`（有料）が必要 |
 | 自己診断（`python -m app.diagnose`、SRC の RUN DIAGNOSTICS） | ✅ | 実ネットワーク環境で最初に実行する |
-| テスト | ✅ backend 194 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
+| テスト | ✅ backend 204 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
 
 ## 3. 起動方法
 
@@ -110,6 +112,10 @@ backend/app/
                      filings.py（EDINET の一覧・コード一覧・種類・対象の会社への結び付け、SEC EDGAR の解析）
   api_info.py        /api/info/*（TOP：取得と保存、巡回、通知、開示、会社ごとのニュース）
   api_settings.py    /api/settings/keys（API キーをその PC の .env に書き込み、すぐ有効にする）
+  fexpmodel.py       FEXP の計算（要因の一覧、時差の補正、市場と無関係な部分への変換、感応度・リスク分解・寄与・推移・地図・シナリオ。純関数）
+  api_fexp.py        /api/fexp/*（銘柄・バスケット・PORT、シナリオ、カバレッジ比較）
+  trinity_eval.py    ALIGN・CHECK・EVAL の純関数（一致の状態と裁定ルール、発注前の関門、答え合わせと過去検証）
+  api_trinity_eval.py /api/trinity/align・/check・/eval
   api_brief.py       /api/brief/*（データ集め、_terminal/briefs/ への保存、AUTO からの毎朝の作成）
   api_earnings.py    /api/earnings/*（正本 <カバレッジのルート>/_terminal/earnings/calendar.json、JPX、四半期ページ、
                      notes.md との双方向同期、反応、.ics）
@@ -162,7 +168,7 @@ frontend/src/
   functions/         GP, Monitor（W/WEI…）, Screener（MOST/HMAP）, Security（DES/TA/N/NOTE）,
                      Misc（ECO/ALRT/PORT+RISK+BLOTTER/SRC/HELP）, Analytics（FACT/LAG/CORR/BT）, Quant（BETA/SPRD/SEAS/EVT/RV/EARN/OV）,
                      XLS + XlsTools, MODEL + ModelTools, Reports（TEAR/SCRN）, Research（CYCL/PROP/MACRO/MRGN/TXT/TRND）,
-                     Trinity（TRIN/SCORE/KELLY/RULE/PAIR/SHRT/CHIP/GATE/GLQ）, Insight（XRAY/RRG/THEME/PFND/TRAK）, Coverage（COV）, Stock（STK/FCTR）, Flows（FLOW）, Brief（BRIEF）, Econ（ECST）, Info（TOP・KeysPanel）, components/WindowSlider
+                     Trinity（TRIN/SCORE/KELLY/RULE/PAIR/SHRT/CHIP/GATE/GLQ）, Insight（XRAY/RRG/THEME/PFND/TRAK）, Coverage（COV）, Stock（STK/FCTR）, Flows（FLOW）, Brief（BRIEF）, Econ（ECST）, Info（TOP・KeysPanel）, Fexp（FEXP）, TrinityEval（ALIGN/CHECK/EVAL）, components/WindowSlider
 models/examples/     ハーネスのサンプル spec
 scripts/             setup / start / dev / test（sh と ps1）
 docs/                本資料群
@@ -219,5 +225,4 @@ docs/                本資料群
 - 四半期の FY 表記：標準（決算期が終わる年。2026年12月期 = FY2026）を既定にした。Notion の ATLAS の付け方（開始年 + 1）に合わせたいか（`PUT /api/earnings/config`、[EARNINGS.md](EARNINGS.md)）
 - 四半期ページのチェックリスト（決算前・決算後）の項目を、普段の決算対応に合わせて変えたいか
 - マクロ統計で、ほかに必ず見たい統計（社内で見ている 400 の一覧があれば、その名前）。AUTO の M（マクロ）を統計版の成長×流動性に切り替えたいか
-- 三位一体の分析の追加（ALIGN：全銘柄の三位の一致と裁定ルールの地図／CHECK：発注前の一括チェック／EVAL：AUTO の判定の答え合わせ）— 設計まで済み、未実装（R44）
 - PR を作るための `main` ブランチを作成してよいか（現在リポジトリには作業ブランチしかなく、PR を作れない）

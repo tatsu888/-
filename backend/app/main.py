@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api_analysis, api_brief, api_coverage, api_earnings, api_econ, api_info, api_settings, api_excel, api_factors, api_framework, api_insight, api_trinity, api_harness, api_macro, api_market, api_research
+from . import api_analysis, api_brief, api_coverage, api_earnings, api_econ, api_fexp, api_info, api_settings, api_excel, api_factors, api_framework, api_insight, api_trinity, api_trinity_eval, api_harness, api_macro, api_market, api_research
 from .config import settings
 from .hub import Client, Hub
 from .providers.tv_web import TVWeb
@@ -88,7 +88,7 @@ app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), al
 for r in (api_market.router, api_analysis.router, api_excel.router, api_harness.router, api_macro.router, api_research.router,
           api_framework.router, api_trinity.router, api_insight.router,
           api_coverage.router, api_factors.router, api_earnings.router, api_brief.router, api_econ.router, api_info.router,
-          api_settings.router):
+          api_settings.router, api_fexp.router, api_trinity_eval.router):
     app.include_router(r)
 
 

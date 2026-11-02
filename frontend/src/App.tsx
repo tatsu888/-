@@ -27,6 +27,7 @@ import { FCTR, STK } from './functions/Stock';
 import { FLOW } from './functions/Flows';
 import { BRIEF } from './functions/Brief';
 import { ECST } from './functions/Econ';
+import { FEXP } from './functions/Fexp';
 import { TOP } from './functions/Info';
 
 const DEFAULT_PANELS: PanelState[] = [
@@ -267,7 +268,7 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'MRGN': return <MRGN symbol={symbol} onPick={(s) => setSecurity(s)} />;
     case 'SCRN': return <SCRN />;
     case 'TRIN': return <TRIN symbol={symbol} tab={args?.toUpperCase() || 'AUTO'} onPick={(s) => setSecurity(s)} />;
-    case 'SCORE': case 'KELLY': case 'RULE': case 'PAIR': case 'SHRT': case 'CHIP': case 'GATE':
+    case 'SCORE': case 'KELLY': case 'RULE': case 'PAIR': case 'SHRT': case 'CHIP': case 'GATE': case 'ALIGN': case 'CHECK': case 'EVAL':
       return <TRIN symbol={symbol} tab={fn} onPick={(s) => setSecurity(s)} />;
     case 'GLQ': return <GLQ />;
     case 'XRAY': return <XRAY symbol={symbol} />;
@@ -281,6 +282,7 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'COV': return <COV />;
     case 'STK': return <STK key={symbol} symbol={symbol} />;
     case 'FCTR': return <FCTR />;
+    case 'FEXP': return <FEXP key={symbol + (args || '')} symbol={symbol} args={args} />;
     case 'FLOW': return <FLOW args={args} />;
     case 'TXT': return <TXT symbol={symbol} />;
     case 'TRND': return <TRND symbol={symbol} />;

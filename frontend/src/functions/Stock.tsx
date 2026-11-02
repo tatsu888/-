@@ -16,6 +16,7 @@ const dirCls = (d?: string) => (d === 'LONG' ? 'up' : d === 'SHORT' ? 'down' : '
 const GROUP_COL: Record<string, string> = { マーケット: '#5ea9ff', セクター: '#ffa028', スタイル: '#a98bff', マクロ: '#59e3ff', 個社要因: '#2fd17a' };
 
 function Attribution({ symbol }: { symbol: string }) {
+  const { run } = useTerminal();
   const [w, setW] = useState<WindowValue>({ length: 21, offset: 0 });
   const [est, setEst] = useState(252);
   const r = useAsync(() => api.get<any>(`/factors/attribution/${encodeURIComponent(symbol)}`, { window: w.length, end_offset: w.offset, est }), [symbol, w.length, w.offset, est]);
@@ -24,7 +25,7 @@ function Attribution({ symbol }: { symbol: string }) {
   const maxAbs = Math.max(0.5, ...parts.map(([, v]) => Math.abs(v)), Math.abs(d?.total_pct || 0));
   return (
     <div className="box" style={{ margin: 6 }}>
-      <h4>株価の要因分解 — 個社要因か、ファクター・スタイルか</h4>
+      <h4>株価の要因分解 — 個社要因か、ファクター・スタイルか <button className="tb mini" onClick={() => run('FEXP', symbol)}>FEXP で詳しく（為替・スタイル・セクター）</button></h4>
       <WindowSlider label="窓" value={w} onChange={setW} min={5} max={252} maxOffset={500} asof={d?.to} />
       <div className="toolbar"><span className="lbl">β 推定期間</span>
         <select className="inp" value={est} onChange={(e) => setEst(+e.target.value)}>{[126, 252, 504].map((x) => <option key={x} value={x}>{x}日（窓の前）</option>)}</select>
