@@ -64,6 +64,9 @@ def config() -> dict[str, Any]:
 def universe(cfg: dict[str, Any]) -> list[str]:
     syms: list[str] = []
     src = set(cfg.get("sources") or [])
+    if "coverage" in src:  # the Notion 銘柄マスタ (COV → SYNC FROM NOTION)
+        from .api_coverage import coverage_symbols
+        syms += coverage_symbols()
     if "watchlists" in src:
         wl = S.store.get("watchlists") or {}
         if wl:
@@ -186,7 +189,11 @@ async def _enrich(inputs: dict[str, dict[str, Any]], syms: list[str], scan: dict
     from . import rrg, xray
     from .api_insight import RRG_SETS, xray_from_series, xray_symbols_needed
 
-    sectors = {s: xray.sector_etf(s, (scan.get(s) or {}).get("sector"), (scan.get(s) or {}).get("industry")) for s in syms}
+    from .api_coverage import coverage_meta
+    from .coverage import TOPIX17_ETF
+    meta = coverage_meta()
+    sectors = {s: TOPIX17_ETF.get((meta.get(s) or {}).get("topix17") or "")
+               or xray.sector_etf(s, (scan.get(s) or {}).get("sector"), (scan.get(s) or {}).get("industry")) for s in syms}
     need = xray_symbols_needed(syms, sectors) - set(series)
     regions = {xray.region(s) for s in syms}
     for r in regions:

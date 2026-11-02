@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api_analysis, api_excel, api_framework, api_insight, api_trinity, api_harness, api_macro, api_market, api_research
+from . import api_analysis, api_coverage, api_excel, api_framework, api_insight, api_trinity, api_harness, api_macro, api_market, api_research
 from .config import settings
 from .hub import Client, Hub
 from .providers.tv_web import TVWeb
@@ -76,7 +76,8 @@ app = FastAPI(title="Analyst Terminal API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["*"],
                    allow_headers=["*"])
 for r in (api_market.router, api_analysis.router, api_excel.router, api_harness.router, api_macro.router, api_research.router,
-          api_framework.router, api_trinity.router, api_insight.router):
+          api_framework.router, api_trinity.router, api_insight.router,
+          api_coverage.router):
     app.include_router(r)
 
 

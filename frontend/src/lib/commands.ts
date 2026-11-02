@@ -43,6 +43,7 @@ export const FUNCTIONS: FnDef[] = [
   { code: 'CORR', name: 'Correlation', desc: '相関行列', group: 'Analytics' },
   { code: 'MODEL', name: 'Forecast Harness', desc: '業績予想ハーネス (決定的・検証付き)', group: 'Analytics' },
   { code: 'MRGN', name: 'Margin (信用残)', desc: '信用倍率・買残/売残の推移・出来高比・ランキング (JPX 週末残高)', group: 'Security' },
+  { code: 'COV', name: 'Coverage (Notion)', desc: 'Notion の銘柄マスタからカバレッジを読み込み: 次回決算日→Notion の四半期ページ、セクター/ティッカー別フォルダ（OneDrive 可）、銘柄ごとに XLS・Excel・フォルダ・Notion・ファンダメンタル・レポート', group: 'Security' },
   { code: 'TRIN', name: 'Trinity Framework', desc: '投資の三位一体: AUTO（ルールベースで自動更新する全銘柄の判定）・パイプライン・裁定ルール（全タブのハブ）', group: 'Framework' },
   { code: 'SCORE', name: 'Scoring Sheet', desc: '評点表 (Weight×Score/AI/Prev → 3.4 ロング / 2.7 ショート) + 3.5句', needsSecurity: true, group: 'Framework' },
   { code: 'KELLY', name: 'Kelly Sizing', desc: '期待値・ケリー F=E/(XW×XL)・六つの原則・評点差→サイズ', group: 'Framework' },

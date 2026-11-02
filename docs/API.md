@@ -97,6 +97,10 @@
 | GET | /transcripts/{symbol}/brief_pack?id | 出典番号つき SOURCE と規則を含む AI 用プロンプト |
 | POST | /transcripts/{symbol}/validate_brief `{brief, id?}` | AI の回答の出典・数字を検証 |
 
+## カバレッジ（/api/coverage）— [COVERAGE.md](COVERAGE.md)
+
+書き込み系（`/notion/earnings`、`/folders`）は `apply: false` で計画だけを返す（dry run）。
+
 ## 分析の拡張（/api/insight）
 
 | Method | Path | 説明 |

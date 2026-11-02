@@ -231,3 +231,4 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .theme-form label { display: grid; grid-template-columns: 150px 1fr; gap: 6px; margin: 3px 0; align-items: start; }
 .theme-form textarea { height: 36px; resize: vertical; }
 .t.nowrap td, .t.nowrap th { white-space: nowrap; }
+.report-md { white-space: pre-wrap; font-size: 11px; line-height: 1.5; max-height: 560px; overflow: auto; margin: 0 6px 6px; color: #ddd; }

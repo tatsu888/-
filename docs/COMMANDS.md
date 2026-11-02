@@ -22,6 +22,7 @@
 
 | コード | 名前 | 内容 |
 |---|---|---|
+| **COV** | カバレッジ（Notion） | 銘柄マスタから読み込み、セクター別／ティッカー順／決算日順。次回決算日と四半期（ATLAS の FY 規則）、Notion への書き込み（PREVIEW → APPLY）、フォルダ作成（セクター／ティッカー、OneDrive 可）、銘柄ごとに XLS・Excel・📁・Notion・REPORT。[COVERAGE.md](COVERAGE.md) |
 | **GP** | チャート | 時間足 1m〜M、CANDLE / BAR / LINE / AREA / HA、LOG、VOL、SMA20/50/200、EMA20、BB、VWAP、一目均衡表、RSI、MACD、Stochastic、ATR、描画（HLINE / TREND / FIB / CLEAR）、ALERT@（クリックした価格でアラート）、COMPARE（% 比較）、CSV、PNG 保存 |
 | **DES** | 銘柄概要 | クォート、パフォーマンス（1D〜1Y、YTD、ボラティリティ、52 週レンジ）、ファンダメンタルズ（スキャナー）、紐付いた Excel |
 | **TA** | テクニカル判定 | 1H, 4H, D, W のゲージと各指標の投票 |

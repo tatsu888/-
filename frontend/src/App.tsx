@@ -22,6 +22,7 @@ import { SCRN, TEAR } from './functions/Reports';
 import { CYCL, MACRO, MRGN, PROP, TRND, TXT } from './functions/Research';
 import { GLQ, TRIN } from './functions/Trinity';
 import { PFND, RRG, THEME, TRAK, XRAY } from './functions/Insight';
+import { COV } from './functions/Coverage';
 
 const DEFAULT_PANELS: PanelState[] = [
   { id: 'p1', fn: 'GP' },
@@ -242,6 +243,7 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'THEME': return <THEME />;
     case 'PFND': return <PFND />;
     case 'TRAK': return <TRAK />;
+    case 'COV': return <COV />;
     case 'TXT': return <TXT symbol={symbol} />;
     case 'TRND': return <TRND symbol={symbol} />;
     case 'W': return <Watchlist />;

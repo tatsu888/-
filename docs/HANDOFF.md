@@ -38,6 +38,7 @@
 | 業績予想ハーネス MODEL（A〜G の 7 層、明細行の作り方 18 種、3 表、DCF／倍率法／DDM／RIM、シナリオ、感応度、モンテカルロ、検証チェック、ハッシュ） | ✅ テスト済み | サンプルの JSON は架空の数値 |
 | チャートの追加指標（一目・ストキャス・ATR・PNG）、指標アラート、ペアトレードのバックテスト、約定記録、TEAR、SCRN | ✅ | |
 | CYCL（フーリエ）、MACRO（景気局面）、PROP（認識伝播マップ）、MRGN（信用残の取り込み） | ✅ ロジックはテスト済み、SIM で画面確認済み | マクロ系の記号の一部は未検証。MRGN は JPX のファイルを手で取り込む |
+| **COV**（Notion の銘柄マスタ → カバレッジ、決算日 → Notion の四半期ページ、セクター／ティッカー別フォルダ（OneDrive 可）、銘柄ごとの Excel・レポート） | ✅ テスト済み（Notion API はモック）、SIM で画面確認済み | **実 Notion への書き込みは未実行**（トークン未設定）。最初は PREVIEW で確認してから APPLY |
 | **分析の拡張**：XRAY（リターン分解・意図しないベット）、RRG（セクター回転）、THEME（テーマ・バスケット）、PFND（ペア候補）、TRAK（ベイズ勝率） | ✅ テスト済み、SIM で画面確認済み | 業種 ETF の記号は未検証。テーマのテンプレートは業種 ETF による代用 |
 | **AUTO 三位一体**（ルールベース・自動更新、TRIN の既定タブ） | ✅ テスト済み、SIM で自動実行を確認 | スキャナーが使えないと F のルール採点は N/A |
 | **投資の三位一体**：TRIN / SCORE / KELLY / RULE / PAIR / SHRT / CHIP / GATE / GLQ | ✅ テスト済み（Notion の数字を再現）、SIM で画面確認済み | 評点表の Weight はプレースホルダー、成長×流動性は代理指標（[FRAMEWORK.md](FRAMEWORK.md) §7） |
@@ -84,6 +85,9 @@ backend/app/
   api_framework.py   /api/framework/*（投資の三位一体）
   api_trinity.py     /api/trinity/*（AUTO 三位一体の実行・スケジューラ・保存）
   trinity_auto.py    AUTO 三位一体のルール（純関数）
+  api_coverage.py    /api/coverage/*（COV）
+  coverage.py        四半期ラベル（ATLAS 規則）、フォルダ名・レイアウト、ルールベースのレポート
+  notion_api.py      Notion REST クライアント（銘柄マスタ、MICRO の個社ページ、ページ作成）
   api_insight.py     /api/insight/*（XRAY / RRG / THEME / PFND / TRAK）
   xray.py rrg.py themes.py pairscreen.py trackrecord.py   分析の拡張（純関数）
   framework.py       評点表・3.5句・ケリー・六層規律・ペア・空売り8モデル・天井/底・関門（純関数）
@@ -183,4 +187,5 @@ docs/                本資料群
 - 業績予想ハーネスで最初に扱う会社と、使いたい売上の組み立て方
 - **評点表の各 Weight**（Notion には「配点あり・合計100」のみ）と、**成長×流動性の独自指標の定義**（FRAMEWORK.md §7）
 - 回転率の閾値「市場全体 70%×1か月、個別 10%×1か月」の単位（日次か月次か）。現在は個別＝1日平均、市場＝月合計と解釈
+- COV の Notion 書き込み：四半期ページを作る位置（個社ページ直下でよいか）と、銘柄マスタに「次回決算日」「次回決算期」プロパティを追加してよいか
 - PR を作るための `main` ブランチを作成してよいか（現在リポジトリには作業ブランチしかなく、PR を作れない）

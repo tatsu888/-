@@ -78,7 +78,10 @@ async def xray_inputs(symbols: list[str], sectors: dict[str, str | None], lookba
 async def xray_one(symbol: str, lookback: int = Query(252, ge=120, le=1000), sector_etf: str | None = None,
                    source: str | None = None):
     sc = (await _scan([symbol])).get(symbol) or {}
-    etf = sector_etf or xray.sector_etf(symbol, sc.get("sector"), sc.get("industry"))
+    from .api_coverage import coverage_meta
+    from .coverage import TOPIX17_ETF
+    cm = coverage_meta().get(symbol) or {}
+    etf = sector_etf or TOPIX17_ETF.get(cm.get("topix17") or "") or xray.sector_etf(symbol, sc.get("sector"), sc.get("industry"))
     res, _, errors = await xray_inputs([symbol], {symbol: etf}, lookback, source)
     if symbol not in res:
         raise HTTPException(502, errors.get(symbol) or f"history unavailable: {errors}")
@@ -225,11 +228,15 @@ async def pairs_screen(req: PairScreenReq):
         syms = tuni(config())
         scan = await _scan(syms)
         cards = S.store.get("scorecards") or {}
+        from .api_coverage import coverage_meta
+        cmeta = coverage_meta()
         groups = {}
         for s in syms:
             sub = None
             if req.by == "subsector" and cards.get(s):
                 sub = cards[s][-1]["sheet"].get("subsector")
+            if req.by == "subsector" and not sub:
+                sub = (cmeta.get(s) or {}).get("gics_sub")  # GICS 産業サブグループ from the Notion 銘柄マスタ
             sc = scan.get(s) or {}
             key = sub or (sc.get("sector") if req.by == "sector" else sc.get("industry")) or None
             if key:
