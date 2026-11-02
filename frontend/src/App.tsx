@@ -19,7 +19,7 @@ import { HMAP, MOST } from './functions/Screener';
 import { DES, NEWS, NOTE, TA } from './functions/Security';
 import { XLS } from './functions/XLS';
 import { SCRN, TEAR } from './functions/Reports';
-import { CYCL, MACRO, PROP } from './functions/Research';
+import { CYCL, MACRO, MRGN, PROP } from './functions/Research';
 
 const DEFAULT_PANELS: PanelState[] = [
   { id: 'p1', fn: 'GP' },
@@ -205,7 +205,7 @@ function PanelView({ p, focused, onFocus, security, onPin, onFn, switchProvider,
 }
 
 function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol: string; args?: string; switchProvider: (n: string) => void }) {
-  const { run } = useTerminal();
+  const { run, setSecurity } = useTerminal();
   switch (fn) {
     case 'GP': return <GP key={symbol} symbol={symbol} />;
     case 'DES': return <DES symbol={symbol} />;
@@ -225,6 +225,7 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'CYCL': return <CYCL symbol={symbol} />;
     case 'PROP': return <PROP onChart={(s) => run('GP', s)} />;
     case 'MACRO': return <MACRO />;
+    case 'MRGN': return <MRGN symbol={symbol} onPick={(s) => setSecurity(s)} />;
     case 'SCRN': return <SCRN />;
     case 'W': return <Watchlist />;
     case 'WEI': case 'FX': case 'RATES': case 'CMDTY': case 'CRYP': return <ListMonitor list={fn} />;

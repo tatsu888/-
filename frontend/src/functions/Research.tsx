@@ -354,3 +354,104 @@ export function MACRO() {
     </div>
   );
 }
+
+// ---------------------------------------------------------------- MRGN (信用残)
+const toTs = (d: string) => Math.floor(new Date(d + 'T00:00:00Z').getTime() / 1000);
+export function MRGN({ symbol, onPick }: { symbol: string; onPick: (s: string) => void }) {
+  const [reload, setReload] = useState(0);
+  const dates = useAsync(() => api.get<any>('/margin/dates'), [reload]);
+  const [date, setDate] = useState('');
+  const rk = useAsync(() => api.get<any>('/margin/ranking', { date: date || undefined }), [date, reload]);
+  const st = useAsync(() => (symbol.startsWith('TSE:') ? api.get<any>('/margin/stock', { symbol }) : Promise.resolve(null)), [symbol, reload]);
+  const [sort, setSort] = useState<{ k: string; dir: number }>({ k: 'ratio', dir: -1 });
+  const [msg, setMsg] = useState<string>();
+  const [url, setUrl] = useState('');
+  const [fileDate, setFileDate] = useState('');
+  async function upload(f: File) {
+    const fd = new FormData();
+    fd.append('file', f);
+    if (fileDate) fd.append('date', fileDate);
+    const r = await fetch('/api/margin/import', { method: 'POST', body: fd });
+    const j = await r.json();
+    setMsg(r.ok ? `imported ${j.records} rows · ${j.codes} codes · ${j.dates.join(', ')}` : `ERROR ${j.detail}`);
+    setReload((x) => x + 1);
+  }
+  const rows = [...(rk.data?.rows ?? [])].sort((a: any, b: any) => ((a[sort.k] ?? -Infinity) - (b[sort.k] ?? -Infinity)) * sort.dir);
+  const th = (k: string, l: string) => <th className="sort" onClick={() => setSort({ k, dir: sort.k === k ? -sort.dir : -1 })}>{l}{sort.k === k ? (sort.dir > 0 ? '▲' : '▼') : ''}</th>;
+  const s = st.data;
+  const ratioLine = useMemo(() => (s?.rows ? [{ name: '信用倍率', data: s.rows.filter((r: any) => r.ratio != null).map((r: any) => ({ time: toTs(r.date), value: r.ratio })), color: '#ffd84a' }] : []), [s]);
+  const balLines = useMemo(() => (s?.rows ? [
+    { name: '買残', data: s.rows.map((r: any) => ({ time: toTs(r.date), value: r.long })), color: '#2fd17a' },
+    { name: '売残', data: s.rows.map((r: any) => ({ time: toTs(r.date), value: r.short })), color: '#ff4545' },
+  ] : []), [s]);
+  const px = useMemo(() => (s?.rows ? [{ name: 'close', data: s.rows.filter((r: any) => r.close != null).map((r: any) => ({ time: toTs(r.date), value: r.close })), color: '#ffa028' }] : []), [s]);
+  return (
+    <div>
+      <div className="toolbar">
+        <label className="tb green">UPLOAD JPX FILE (CSV/XLSX)<input type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} /></label>
+        <span className="lbl">DATE (if not in file)</span>
+        <input className="inp" type="date" value={fileDate} onChange={(e) => setFileDate(e.target.value)} />
+        <input className="inp" style={{ width: 260 }} placeholder="https://…/margin file URL" value={url} onChange={(e) => setUrl(e.target.value)} />
+        <button className="tb" disabled={!url} onClick={async () => {
+          try {
+            const j = await api.post<any>('/margin/import_url', { url, date: fileDate || null });
+            setMsg(`imported ${j.records} rows · ${j.dates.join(', ')}`);
+            setReload((x) => x + 1);
+          } catch (e: any) {
+            setMsg(`ERROR ${e.message}`);
+          }
+        }}>IMPORT URL</button>
+        <span className="muted">{dates.data ? `${dates.data.dates.length} weeks · ${dates.data.codes} codes stored` : ''}</span>
+      </div>
+      {msg && <div className={msg.startsWith('ERROR') ? 'err' : 'note'}>{msg}</div>}
+      {dates.data && !dates.data.dates.length && (
+        <div className="pad muted">
+          JPX が毎週火曜に公表する「銘柄別信用取引週末残高」(CSV/Excel) をアップロードしてください。列（コード・銘柄名・売残・買残、合計列を優先）は自動判定します。毎週取り込むと時系列で分析できます。
+        </div>
+      )}
+      {s && !s.error && (
+        <div className="box" style={{ margin: 6 }}>
+          <h4>{symbol} {s.name ?? ''} — 信用残 ({s.weeks} weeks)</h4>
+          <div className="kv" style={{ gridTemplateColumns: 'repeat(4, max-content 1fr)' }}>
+            <span>信用倍率</span><span className="yellow">{fmtNum(s.latest.ratio, 2)} 倍 ({s.latest.date})</span>
+            <span>倍率の分位</span><span>{fmtNum(s.ratio_percentile, 0)}%ile (過去分布)</span>
+            <span>買残 / 売残</span><span>{fmtNum(s.latest.long, 0)} / {fmtNum(s.latest.short, 0)}</span>
+            <span>前週比</span><span><span className={(s.latest.long_chg ?? 0) >= 0 ? 'up' : 'down'}>買 {fmtNum(s.latest.long_chg, 0)}</span> · <span className={(s.latest.short_chg ?? 0) >= 0 ? 'up' : 'down'}>売 {fmtNum(s.latest.short_chg, 0)}</span></span>
+            <span>買残 / 出来高(20D)</span><span>{fmtNum(s.buy_days, 1)} 日分</span>
+            <span>売残 / 出来高(20D)</span><span>{fmtNum(s.sell_days, 1)} 日分</span>
+            <span>Δ倍率 vs 4週後リターン</span><span>{s.ratio_change_vs_fwd4w ? `corr ${fmtNum(s.ratio_change_vs_fwd4w.corr, 2)} (n=${s.ratio_change_vs_fwd4w.n})` : 'insufficient history'}</span>
+          </div>
+          <LineChart lines={ratioLine} height={140} baseline={1} />
+          <LineChart lines={balLines} height={140} />
+          <LineChart lines={px} height={120} />
+        </div>
+      )}
+      {s?.error && symbol.startsWith('TSE:') && <div className="note">{symbol}: {s.error}</div>}
+      {rk.data?.rows?.length > 0 && (
+        <>
+          <div className="toolbar">
+            <span className="lbl">RANKING DATE</span>
+            <select className="inp" value={date} onChange={(e) => setDate(e.target.value)}>
+              <option value="">latest ({rk.data.date})</option>
+              {[...(dates.data?.dates ?? [])].reverse().map((d: string) => <option key={d}>{d}</option>)}
+            </select>
+            <span className="muted">vs {rk.data.previous ?? '—'} · 倍率&lt;1 = 売り長（踏み上げ余地）, 高倍率 = 将来の売り圧力</span>
+          </div>
+          <table className="t">
+            <thead><tr><th className="l">CODE</th><th className="l">NAME</th>{th('ratio', '信用倍率')}{th('ratio_chg', 'Δ倍率')}{th('long', '買残')}{th('long_chg_pct', '買残 WoW%')}{th('short', '売残')}{th('short_chg_pct', '売残 WoW%')}</tr></thead>
+            <tbody>
+              {rows.slice(0, 300).map((r: any) => (
+                <tr key={r.code} className={`click ${symbol === r.symbol ? 'sel' : ''}`} onClick={() => onPick(r.symbol)}>
+                  <td className="l sym">{r.code}</td><td className="l name">{r.name}</td>
+                  <td className={r.ratio != null && r.ratio < 1 ? 'up' : r.ratio > 10 ? 'down' : ''}>{fmtNum(r.ratio, 2)}</td>
+                  <td className={(r.ratio_chg ?? 0) > 0 ? 'down' : 'up'}>{fmtNum(r.ratio_chg, 2)}</td>
+                  <td>{fmtNum(r.long, 0)}</td><td>{fmtPct(r.long_chg_pct, 1)}</td><td>{fmtNum(r.short, 0)}</td><td>{fmtPct(r.short_chg_pct, 1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </div>
+  );
+}

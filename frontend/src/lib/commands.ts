@@ -42,6 +42,7 @@ export const FUNCTIONS: FnDef[] = [
   { code: 'LAG', name: 'Lead-Lag', desc: 'タイムラグ分析 (原油→株, 米国テーマ→日本 等)', group: 'Analytics' },
   { code: 'CORR', name: 'Correlation', desc: '相関行列', group: 'Analytics' },
   { code: 'MODEL', name: 'Forecast Harness', desc: '業績予想ハーネス (決定的・検証付き)', group: 'Analytics' },
+  { code: 'MRGN', name: 'Margin (信用残)', desc: '信用倍率・買残/売残の推移・出来高比・ランキング (JPX 週末残高)', group: 'Security' },
   { code: 'PORT', name: 'Portfolio', desc: 'ポジション・損益・リスク (VaR, β, リスク寄与, ストレス)', group: 'Trading' },
   { code: 'ALRT', name: 'Alerts', desc: '価格アラート', group: 'Trading' },
   { code: 'ECO', name: 'Economic Calendar', desc: '経済指標カレンダー', group: 'Macro' },

@@ -24,7 +24,7 @@ export function TickerTape() {
   );
 }
 
-const KEYS = ['GP', 'DES', 'TA', 'N', 'XLS', 'RV', 'TEAR', '|', 'W', 'WEI', 'FX', 'RATES', 'CMDTY', 'CRYP', 'MOST', 'SCRN', 'HMAP', '|', 'PROP', 'MACRO', 'FACT', 'LAG', 'CORR', 'BETA', 'SPRD', 'SEAS', 'EVT', 'BT', 'OV', 'MODEL', '|', 'PORT', 'ALRT', 'ECO', 'EARN', 'NOTE', 'SRC', 'HELP'];
+const KEYS = ['GP', 'DES', 'TA', 'N', 'XLS', 'RV', 'MRGN', 'TEAR', '|', 'W', 'WEI', 'FX', 'RATES', 'CMDTY', 'CRYP', 'MOST', 'SCRN', 'HMAP', '|', 'PROP', 'MACRO', 'FACT', 'LAG', 'CORR', 'BETA', 'SPRD', 'SEAS', 'EVT', 'BT', 'OV', 'MODEL', '|', 'PORT', 'ALRT', 'ECO', 'EARN', 'NOTE', 'SRC', 'HELP'];
 
 export interface WorkspaceApi {
   names: string[];
