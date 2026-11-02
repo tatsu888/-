@@ -9,6 +9,34 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def load_dotenv(path: Path) -> list[str]:
+    """Minimal .env reader (KEY=VALUE, '#' comments). Never overrides variables already set in the
+    environment. Disabled with TERMINAL_NO_DOTENV=1 (the test suite sets it)."""
+    if os.environ.get("TERMINAL_NO_DOTENV") == "1" or not path.is_file():
+        return []
+    loaded = []
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip().removeprefix("export ").strip()
+        val = val.strip()
+        if val[:1] in ("'", '"') and val[-1:] == val[:1] and len(val) >= 2:
+            val = val[1:-1]
+        else:
+            val = val.split(" #", 1)[0].strip()
+        if key and key not in os.environ:
+            os.environ[key] = val
+            loaded.append(key)
+    return loaded
+
+
+# repo-root .env (copy .env.example → .env); then backend/.env
+for _p in (Path(__file__).resolve().parents[2] / ".env", Path(__file__).resolve().parents[1] / ".env"):
+    load_dotenv(_p)
+
+
 def _env(name: str, default: str) -> str:
     return os.environ.get(name, default).strip()
 

@@ -67,6 +67,56 @@
 | POST | /portfolio_risk `{positions:[{symbol, qty}], benchmark, lookback, base_currency}` | VaR・ES、ボラティリティ、ベータ、リスク寄与度、ストレステスト、為替換算 |
 | GET | /relative_value?symbol&peers=A,B | 同業他社のスクリーナー項目、パフォーマンス、中央値、パーセンタイル |
 | GET | /earnings?symbols=A,B | 次回・前回の決算日と予想（SIM では無効） |
+| POST | /pair_backtest `{a, b, hedge_window, z_window, entry_z, exit_z, stop_z, ...}` | ペアトレードのバックテスト（ローリング・ヘッジ比率） |
+| GET | /blotter | 約定記録（store.trades）から平均取得単価・実現損益・ポジション |
+| GET | /fourier?symbol&interval&k&horizon&bars&detrend | ピリオドグラム、調和回帰予測、ナイーブ比のローリング・バックテスト |
+
+## マクロ（/api/macro）
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET/PUT/DELETE | /map | 認識伝播マップの定義（DELETE で既定に戻す） |
+| GET | /propagation?bars&z_window&gap&max_lag&source | 資産クラス × 段のシグナル、段の合成、段間ラグ、未波及、先行指標 |
+| GET | /dashboard?bars&source | 金利・カーブ・クレジット・ボラ・コモディティ、景気局面（成長×インフレ）、成長×流動性 |
+| GET | /growth_liquidity?bars&horizon=63&z_window=756&source | 成長×流動性 4 象限（現在地、軌跡、回転、次の象限、象限別の翌月リターン） |
+
+## リサーチ（/api）
+
+| Method | Path | 説明 |
+|---|---|---|
+| POST | /margin/import (multipart: file, date?) | JPX 信用残ファイル（CSV / XLSX）の取り込み |
+| POST | /margin/import_url `{url, date?}` | URL から取り込み（https のみ） |
+| GET | /margin/dates, /margin/ranking?date&min_long, /margin/stock?symbol | 取り込み済みの日付、ランキング、銘柄の推移と株価との関係 |
+| GET | /trends/google?keywords=a,b&geo=JP&timeframe&symbol | Google Trends（非公式）、急騰、関連クエリ、株価との先行性 |
+| GET | /social/x?query&lang | X API v2（要 `X_BEARER_TOKEN`） |
+| GET | /social/stocktwits?symbol | StockTwits（symbol なしならトレンド） |
+| GET/POST | /transcripts/{symbol} `{period, date?, title?, text}` | 書き起こしの一覧・保存（同じ期は上書き） |
+| DELETE | /transcripts/{symbol}/{id} | 削除 |
+| GET | /transcripts/{symbol}/analyze?id | トーン、前期との差分、Q&A 回避度、数字、期ごとの変化スコアの履歴 |
+| POST | /transcript_text/analyze `{text, prev?}` | 保存せずに分析 |
+| GET | /transcripts/{symbol}/brief_pack?id | 出典番号つき SOURCE と規則を含む AI 用プロンプト |
+| POST | /transcripts/{symbol}/validate_brief `{brief, id?}` | AI の回答の出典・数字を検証 |
+
+## 投資の三位一体（/api/framework）— [FRAMEWORK.md](FRAMEWORK.md)
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /meta | 評点表の項目、閾値、上限、ショートの型、関門、裁定ルール、ペア適性表 |
+| POST | /score/evaluate `{rows, moat, reason, text}` | 評点表の評価（保存しない） |
+| GET | /scorecards | 保存済み評点表の最新版の一覧 |
+| GET/POST/DELETE | /scorecards/{symbol} | 版の履歴・保存（Previous Score は前版から自動）・削除 |
+| POST | /score_gap `{long_score, short_score, cap}` | 評点差 → サイズ |
+| GET | /pairs_from_scores | サブセクターごとの最高×最低のペア候補 |
+| POST | /kelly `{pw, xw, xl, side, ruin_prob, fraction, cap_pct}` | 期待値・ケリー・成長曲線・六つの原則 |
+| GET/PUT | /book | 六層チェック用のブック（positions, level, nav, drawdown_pct） |
+| POST | /book/from_portfolio `{nav, base_currency}` | PORT のポジションから重み・セクター・時価総額・βを作る |
+| POST | /exposure `{positions, level, drawdown_pct, compute_pairs}` | L1〜L6 と DD ルールのチェック、ペアの Pair Sigma など |
+| POST | /pair `{long, short, w_long, w_short, bench?, earnings_dirs?, borrow_ok?, spread_class?}` | Pair Sigma、相関分布、β、固有分散、20日スプレッド、ペア適性 |
+| POST | /short_models `{symbol?, inputs}` | 空売り8モデル（symbol があれば一部を自動取得） |
+| GET | /top_bottom/{symbol}?scope&shares&holding_value&inst_ownership_pct | 天井／底シグナル、回転率、信用残、混雑度 |
+| GET/POST | /ideas, DELETE /ideas/{id}, POST /ideas/monthly_reset, GET /ideas/archive/{month} | 関門チェックリストのアイデア管理と毎月リセット |
+| POST | /gates `{"macro:0":"yes", ...}` | 関門の通過状況 |
+| GET | /overview/{symbol} | ファンダ（評点表）× マクロ（4 象限）× 需給（天井/底）の一覧 |
 
 ## アラートと保存
 
@@ -74,7 +124,9 @@
 |---|---|---|
 | GET/POST | /api/alerts | 条件は above, below, cross_up, cross_down, change_pct_above, change_pct_below |
 | PATCH/DELETE | /api/alerts/{id} | 有効・無効の切替、値やメモの変更、削除 |
-| GET/PUT | /api/store/{key} `{"value":...}` | キーは watchlists, portfolio, notes, layout, settings, excel_links, harness_models, workspaces |
+| GET/PUT | /api/store/{key} `{"value":...}` | キーは watchlists, portfolio, notes, layout, settings, excel_links, harness_models, workspaces, harness_versions, macro_map, screens, trades, scorecards, fw_book, fw_ideas, fw_ideas_archive, transcripts |
+| GET | /api/diagnose | 接続の自己診断（`python -m app.diagnose` と同じ） |
+| GET | /api/screener/fields, POST /api/screener/custom | SCRN 用の項目一覧とカスタム条件のスキャン |
 
 ## Excel（/api/excel）
 
@@ -89,6 +141,11 @@
 | POST | /write `{id, sheet, updates:{"B5":"5%","C7":"=C6/B6-1"}}` | セルの編集（値または数式）。返り値は `mode`（xlwings／openpyxl）、`before`（UNDO 用の変更前の内容）、`view`（更新後の表示） |
 | POST | /upload (multipart) | data/workbooks/uploads へ保存 |
 | GET | /download?id | ファイルのダウンロード |
+| POST | /format, /structure, /fill | 書式の変更、行・列の挿入／削除（Excel 経由のみ）、数式のフィル（相対参照） |
+| GET | /trace?id&sheet&cell | 参照元・参照先 |
+| GET | /backups?id, /diff?id&backup, POST /restore | 書き込み前のスナップショット一覧、差分、復元 |
+| GET | /live?id | Excel で開いている未保存の値（xlwings） |
+| POST | /new | 新しいシート・ブックの作成 |
 
 ## ハーネス（/api/harness）
 
@@ -101,6 +158,10 @@
 | POST | /regression `{y, drivers, future?, transform}` | OLS の結果、またはドライバー回帰による予測 |
 | POST | /timeseries `{values, horizon, period}` | 各種の時系列予測と、ローリング検証による手法比較 |
 | POST | /export.xlsx | 結果を xlsx で出力（Projection、Checks、Meta の各シート） |
+| GET | /schema, /templates, /templates/{name} | spec の JSON Schema、業種テンプレート |
+| GET | /models/{name}/versions[/{version}], /models/{name}/diff | 版の履歴と差分 |
+| POST | /brief, /apply_changes | AI 用ブリーフの生成、AI が提案した変更の検証と適用（過去実績の変更禁止・出典必須） |
+| GET | /for_symbol?symbol | 銘柄に紐づくモデル |
 
 ## WebSocket `/ws`
 

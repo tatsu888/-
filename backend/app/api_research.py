@@ -210,7 +210,7 @@ class TextReq(BaseModel):
     prev: str | None = None
 
 
-@router.post("/transcripts/analyze_text")
+@router.post("/transcript_text/analyze")
 async def transcripts_analyze_text(req: TextReq):
     return TX.analyze(req.text, req.prev)
 

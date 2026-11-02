@@ -83,6 +83,17 @@ Yahoo への変換は `backend/app/providers/yahoo.py` の `to_yahoo()` で行�
 - 銘柄ごとにシードを固定した幾何ランダムウォークで、`source="sim"` を付けます。UI には常に DEMO と表示し、ニュースと経済指標は無効です。
 - 用途はオフラインでの開発、UI の確認、テストです。**分析結果に意味はありません。**
 
+## その他のデータ源
+
+| データ | 取得方法 | コード | 注意 |
+|---|---|---|---|
+| JPX 銘柄別信用取引週末残高 | ユーザーが CSV / XLSX をアップロード、または URL を指定 | `margin.py`, `MRGN` | 列名で自動判定（コード／売残／買残）。毎週火曜に前週末分が公表 |
+| Google Trends | 非公式 API（explore → widgetdata） | `attention.py`, `TRND` | 仕様変更・アクセス制限で失敗し得る |
+| X（Twitter） | 公式 API v2（`X_BEARER_TOKEN`） | `attention.py` | 有料プランが必要 |
+| StockTwits | 公開 API | `attention.py` | 米国ティッカーのみ |
+| 決算説明会の書き起こし | ユーザーが貼り付け（ATLAS の文字起こし等） | `transcripts.py`, `TXT` | 外部取得なし |
+| 成長×流動性・MACRO の系列 | TradingView / Yahoo の価格（銅・金・金利・DXY・HYG/IEF） | `macro.py` | 記号は未検証のものを含む（`python -m app.diagnose` で確認） |
+
 ## ネットワーク環境のメモ
 
 開発に使ったクラウドコンテナでは、外向き通信がポリシーで制限されていました（パッケージレジストリのみ許可）。TradingView と Yahoo のホストを許可する場合は、環境設定の Network access で、次のドメインを Allowed domains に追加します（https://code.claude.com/docs/en/cloud-environments#network-access）。

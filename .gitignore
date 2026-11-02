@@ -11,3 +11,7 @@ data/
 *.log
 .DS_Store
 diagnose_report.json
+
+# local secrets (TV_AUTH_TOKEN, X_BEARER_TOKEN)
+.env
+backend/.env

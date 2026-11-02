@@ -53,3 +53,5 @@ def test_transcripts_api():
         assert "[S0]" in p["prompt"]
         v = c.post("/api/transcripts/TSE:6501/validate_brief", json={"brief": "- 売上1,150億円 [S0]"}).json()
         assert v["ok"] is True
+        t = c.post("/api/transcript_text/analyze", json={"text": CUR, "prev": PREV}).json()
+        assert t["diff"]["new_count"] >= 1

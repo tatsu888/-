@@ -63,3 +63,38 @@
 
 ### 未確認
 - EARN と RV で使うスクリーナーの列名（実データ）
+
+## 2026-11-02 — Claude Code（機能追加：R20〜R25）
+
+### やったこと（コミット順）
+- `e370fe6` TradingView 通信：偽の websocket サーバーによる E2E テスト（再接続を含む）、HTTP のパーサーのテスト、自己診断（`python -m app.diagnose`、`/api/diagnose`、SRC の RUN DIAGNOSTICS）
+- `8495637` ハーネス：パラメータの契約と JSON Schema、Excel セル参照、版の履歴と差分、AI ブリーフ → 変更提案の検証と適用（過去実績の変更禁止・出典必須）、業種テンプレート 6 種、前提のフォーム編集
+- `a51a186` `cec16aa` Excel（R20）：フィル／貼り付け（相対参照）、参照元・参照先、検索、名前ボックス、統計、枠の固定、書式、行列の挿入・削除、新規シート／ブック、書き込み前のスナップショットと差分・復元、クイックチャート、未保存の値の同期、条件付き書式・入力規則・コメント・リンクの表示（コメントの VML は劣化扱いにしない）
+- `6c6dfeb` チャート：一目・ストキャス・ATR・PNG 保存。指標アラート（サーバーで毎分評価）
+- `a4dcdfc` ペアトレードのバックテスト、約定記録（平均取得単価・実現損益・ポジションへの同期）、為替変動込みのポートフォリオリスク
+- `55feee5` TEAR（印刷用ティアシート）、SCRN（スクリーンビルダー）、パネル最大化、`Start-Terminal.bat`
+- `d8d1d81` CYCL（フーリエ）とハーネスの `fourier` メソッド
+- `543744d` PROP（認識伝播マップ）と MACRO（金利・カーブ・クレジット・ボラ・景気局面）
+- `aa2e2fc` MRGN（JPX 信用残の取り込みと分析）
+- `f68c9ea` TRND のバックエンド（Google Trends、X API v2、StockTwits、辞書によるセンチメント、急騰、関心と株価の先行性）
+- `f521a78` **投資の三位一体**のバックエンド：`framework.py`（評点表、3.5句、評点差→サイズ、ケリー、六層規律、Pair Sigma・ペア適性、空売り8モデル、天井/底、混雑度、関門）、`api_framework.py`、成長×流動性（`macro.growth_liquidity`）、書き起こし分析（`transcripts.py`）
+- `fa05d5b` フロントエンド：`TRIN` とタブ（SCORE / KELLY / RULE / PAIR / SHRT / CHIP / GATE / GLQ）、`TXT`、`TRND`、MACRO に 4 象限
+- 本コミット：docs 一式（FRAMEWORK.md・ATTENTION.md 新規、COMMANDS / API / ANALYTICS / DATA_SOURCES / CONFIG / HANDOFF / REQUIREMENTS / ROADMAP 更新）、`.env` の自動読み込み（`config.load_dotenv`）と `.gitignore` への `.env` 追加、`POST /transcripts/analyze_text` が `/{symbol}` に隠れていたのを `/transcript_text/analyze` に変更
+
+### Notion の読み取り（R23、R24）
+- `ATLAS / STRATEGY / 投資の三位一体` の第1〜5部、`ファンダメンタル戦略`、`Framework of Pinpoint`、`見るべき統計` を読んだ。数字は Notion の値をそのまま実装し、Notion に数字がない箇所はプレースホルダーと明記（FRAMEWORK.md §7）
+- 未読：`マクロ戦略 加筆版`、`クオンツ戦略`、`TRADING`、`Valuation`、`ストックレビューの仕方`、`ファンダメンタルズ L/S MN戦略と限界`、`AI 指示`（三位一体と重複が多いと判断。次回、差分があれば反映）
+
+### 途中で見つけて直した問題
+- 成長×流動性の結果で、象限のラベル（`growth`）が数値の z を上書きしていた → ラベルを `growth_label` / `liq_label` に改名
+- 空売りモデル①の「二階微分」を、成長率の系列の二階差分で計算していた → 成長率＝利益の一階微分なので、その変化（一階差分）が二階微分（Notion の例 30→20→10% で成立）
+- SCORE と PAIR の画面で、パネル幅が狭いと表が右側の列と重なった → 最小幅を設けて折り返し
+- `.env.example` はあったが読み込む処理がなく、`.env` も `.gitignore` に入っていなかった
+
+### テスト
+- backend 116 件（framework 13、transcripts 5、config 1 を追加）、frontend 10 件、型チェック、ビルド
+- Playwright（SIM）で TRIN / SCORE / KELLY / RULE / PAIR / SHRT / CHIP / GATE / GLQ / TXT / MACRO / TRND を操作して画面確認。StockTwits はこの環境では外部通信が拒否されエラー表示（想定どおり）
+
+### 未確認
+- 実データでの成長×流動性の記号（`COMEX:HG1!`、`TVC:DXY`、`TVC:US02Y`、`AMEX:HYG` など）、スキャナーの列（`float_shares_outstanding`、`total_revenue_yoy_growth_ttm`、`free_cash_flow`、`enterprise_value_ebitda_ttm`）
+- Google Trends・X・StockTwits の実通信

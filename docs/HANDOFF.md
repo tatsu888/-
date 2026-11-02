@@ -13,6 +13,8 @@
 - 市場分析：どのファクターが効いているか、タイムラグ（原油→株、米国のテーマ→日本株）を調べる
 - Excel 連携：銘柄を選んだら、その銘柄の Excel をフォルダから探さずに HTML 上で参照し、**HTML から編集もする**（ユーザーは Windows）。**Excel の機能は劣化させない**
 - 業績予想ハーネス：AI のハルシネーションや、実行ごとに結果がぶれることを防ぐため、**会社に依存しない計算式と財務モデルを MECE に網羅した、決定的なエンジン**を用意する
+- マクロ・マーケットタイミング：**資産クラス別の認識伝播**（ニッチ → マクロ投資家 → 日本の個別株投資家）を毎日見る（`PROP`）
+- **ユーザーと会社（Pinpoint）のフレームワーク「投資の三位一体」（Notion）どおりに分析できること**（`TRIN` ほか）。中身と対応表は [`FRAMEWORK.md`](FRAMEWORK.md)
 
 ユーザーの発言は [`REQUIREMENTS.md`](REQUIREMENTS.md) に時系列で記録しています。
 
@@ -34,7 +36,13 @@
 | ワークスペース（画面配置の保存）、コマンド履歴、XLS の範囲選択・コピー・貼り付け | ✅ | |
 | Excel 連携 XLS（自動・手動の紐付け、劣化なしの表示、**HTML からの編集（EDIT）**、UNDO、Excel と同じキー操作、What-if、`=TV()`、Excel で開く、保存の検知と自動再読込） | ✅ | 編集は既定で有効（`auto`）。Windows では xlwings（Excel 本体）経由。**xlwings の実機（Windows + Excel）は未検証**で、制御の流れは偽のモジュールを使ったテストで確認済み。openpyxl 経由はブラウザでの操作まで確認済み |
 | 業績予想ハーネス MODEL（A〜G の 7 層、明細行の作り方 18 種、3 表、DCF／倍率法／DDM／RIM、シナリオ、感応度、モンテカルロ、検証チェック、ハッシュ） | ✅ テスト済み | サンプルの JSON は架空の数値 |
-| テスト | ✅ backend 48 件、frontend 7 件、型チェック、ビルド | `scripts/test.sh` |
+| チャートの追加指標（一目・ストキャス・ATR・PNG）、指標アラート、ペアトレードのバックテスト、約定記録、TEAR、SCRN | ✅ | |
+| CYCL（フーリエ）、MACRO（景気局面）、PROP（認識伝播マップ）、MRGN（信用残の取り込み） | ✅ ロジックはテスト済み、SIM で画面確認済み | マクロ系の記号の一部は未検証。MRGN は JPX のファイルを手で取り込む |
+| **投資の三位一体**：TRIN / SCORE / KELLY / RULE / PAIR / SHRT / CHIP / GATE / GLQ | ✅ テスト済み（Notion の数字を再現）、SIM で画面確認済み | 評点表の Weight はプレースホルダー、成長×流動性は代理指標（[FRAMEWORK.md](FRAMEWORK.md) §7） |
+| TXT（書き起こし：Lazy Prices 差分、トーン、Q&A 回避度、出典必須の AI ブリーフ検証） | ✅ | 外部通信なし |
+| TRND（Google Trends、X、StockTwits） | ⚠️ 実装済み・実通信は未検証 | X は `X_BEARER_TOKEN`（有料）が必要 |
+| 自己診断（`python -m app.diagnose`、SRC の RUN DIAGNOSTICS） | ✅ | 実ネットワーク環境で最初に実行する |
+| テスト | ✅ backend 116 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
 
 ## 3. 起動方法
 
@@ -69,6 +77,17 @@ backend/app/
   api_analysis.py    /api/analytics/*（technicals, correlation, performance, backtest, factors/*, leadlag/*）
   api_excel.py       /api/excel/*
   api_harness.py     /api/harness/*
+  api_macro.py       /api/macro/*（認識伝播マップ、ダッシュボード、成長×流動性）
+  api_research.py    /api/margin/*, /api/trends/*, /api/social/*, /api/transcripts/*
+  api_framework.py   /api/framework/*（投資の三位一体）
+  framework.py       評点表・3.5句・ケリー・六層規律・ペア・空売り8モデル・天井/底・関門（純関数）
+  macro.py           認識伝播マップ、景気局面、成長×流動性
+  margin.py          JPX 信用残の取り込みと分析
+  attention.py       Google Trends、X、StockTwits、センチメント
+  transcripts.py     書き起こしのトーン・差分・回避度・数字・出典検証
+  fourier.py         FFT、調和回帰、ローリング・バックテスト
+  screener.py        SCRN の条件組み立て
+  diagnose.py        接続の自己診断（CLI と API）
   analytics.py       指標、テクニカル判定、相関、パフォーマンス、バックテスト（純 Python）
   quant.py           BETA、SPRD（共和分）、SEAS、EVT、ポートフォリオリスク（VaR、為替換算）、RV
   factors.py         ファクター分析（ETF プロキシ、クロスセクション）
@@ -105,7 +124,9 @@ frontend/src/
   lib/               api, feed（websocket と hooks）, commands, indicators, format, xlsfmt, treemap, types
   components/        CommandLine, Chrome（テープ・キー・ステータス）, LineChart, ui
   functions/         GP, Monitor（W/WEI…）, Screener（MOST/HMAP）, Security（DES/TA/N/NOTE）,
-                     Misc（ECO/ALRT/PORT+RISK/SRC/HELP）, Analytics（FACT/LAG/CORR/BT）, Quant（BETA/SPRD/SEAS/EVT/RV/EARN/OV）, XLS, MODEL
+                     Misc（ECO/ALRT/PORT+RISK+BLOTTER/SRC/HELP）, Analytics（FACT/LAG/CORR/BT）, Quant（BETA/SPRD/SEAS/EVT/RV/EARN/OV）,
+                     XLS + XlsTools, MODEL + ModelTools, Reports（TEAR/SCRN）, Research（CYCL/PROP/MACRO/MRGN/TXT/TRND）,
+                     Trinity（TRIN/SCORE/KELLY/RULE/PAIR/SHRT/CHIP/GATE/GLQ）
 models/examples/     ハーネスのサンプル spec
 scripts/             setup / start / dev / test（sh と ps1）
 docs/                本資料群
@@ -121,6 +142,8 @@ docs/                本資料群
 6. **Excel の編集は「HTML で入力し、保存は Excel 本体」**：openpyxl で書き込むと、グラフ、画像、ピボット、マクロ、数式の計算結果が失われます。ユーザーの要望は「劣化させたくない」「HTML から編集したい」「Windows を使う」の 3 つです。そこで Windows では xlwings で Excel 本体に書き込ませ（劣化なし）、xlwings が使えない環境では、劣化しないファイルに限って openpyxl で書き込みます（バックアップ必須）。What-if（ファイルを変えない試算）は別モードとして残しました。
 7. **ハーネスは「AI は spec を書く、数値はエンジンが出す」**：結果の再現性はハッシュで保証し、数値の出所は明細行ごとの method／formula／source で追えるようにし、もっともらしいだけの数値は検証チェックで警告します。
 8. **リード・ラグは日付（UTC）で揃えた日次データで分析**：東京市場は NY より先に引けるので、米国→日本の効果はラグ +1 に現れます。
+9. **フレームワークの実装は「Notion の数字をそのまま、無い数字は作らない」**：閾値・上限は Notion の値をコードに写し、テストで再現しています。Notion に数字がない箇所はプレースホルダーと画面・docs に明記し、取得できないデータは「不明」のまま評価します（推測で埋めると、ハーネスで避けたかった「もっともらしい誤り」を自分で作ることになるため）。
+10. **AI が書く文章は機械で検証する**：`TXT` の BRIEF と `MODEL` の AI ブリーフは、出典の番号と数字の一致をコードで確認します。AI の採点は `SCORE` の AI Score 列に分けて記録し、人の採点との乖離だけを表示します。
 
 ## 6. 既知の課題・リスク（重要）
 
@@ -136,13 +159,14 @@ docs/                本資料群
 
 ## 7. 次にやること（優先順）
 
-1. 実ネットワーク環境で TradingView と Yahoo の接続を確認・修正する（§6）
+1. 実ネットワーク環境で `python -m app.diagnose` を実行し、TradingView と Yahoo の接続、記号、スキャナーの列名を確認・修正する（§6）
 2. **Windows 実機で XLS の編集を確認する**（`scripts\setup.ps1` で xlwings を入れる → `TERMINAL_EXCEL_DIRS` にモデルのフォルダを設定 → 開いているブックと閉じているブックの両方で、入力、UNDO、数式の編集を試す）。あわせて、実際のファイルで表示の再現度と速度を確認する
-3. 会社ごとのハーネス spec を作る（`models/companies/<symbol>.json`）。必要なら、Excel のセルから history を読み込む機能（`excel:` 参照）を追加する
-4. ファクター ETF の記号を検証し、日本向けファクターを充実させる（TOPIX スタイル指数など）
-5. 暗号資産のリアルタイム配信（Binance 公式 websocket）の Provider を追加する
-6. ユーザー認証、DB 化、複数ユーザーでのウォッチリスト共有
-7. ROADMAP の残り（[`ROADMAP.md`](ROADMAP.md)）
+3. **ユーザーと一緒に評点表の Weight（Notion に数値なし）と、成長×流動性の独自指標の定義を確定する**（[FRAMEWORK.md](FRAMEWORK.md) §7）。Notion の未読ページ（WORKLOG 参照）に差分があれば反映する
+4. 会社ごとのハーネス spec を作る（`models/companies/<symbol>.json`）。必要なら、Excel のセルから history を読み込む機能（`excel:` 参照）を追加する
+5. ファクター ETF の記号を検証し、日本向けファクターを充実させる（TOPIX スタイル指数など）
+6. 暗号資産のリアルタイム配信（Binance 公式 websocket）の Provider を追加する
+7. ユーザー認証、DB 化、複数ユーザーでのウォッチリスト共有
+8. ROADMAP の残り（[`ROADMAP.md`](ROADMAP.md)）
 
 ## 8. ユーザーに確認したいこと（未回答）
 
@@ -151,3 +175,6 @@ docs/                本資料群
 - TradingView の有料プランでログイン済みか（リアルタイム化のため `TV_AUTH_TOKEN` を使うかどうか）
 - Excel モデルの置き場所と、ファイル名の付け方（自動紐付けのルールを合わせるため）
 - 業績予想ハーネスで最初に扱う会社と、使いたい売上の組み立て方
+- **評点表の各 Weight**（Notion には「配点あり・合計100」のみ）と、**成長×流動性の独自指標の定義**（FRAMEWORK.md §7）
+- 回転率の閾値「市場全体 70%×1か月、個別 10%×1か月」の単位（日次か月次か）。現在は個別＝1日平均、市場＝月合計と解釈
+- PR を作るための `main` ブランチを作成してよいか（現在リポジトリには作業ブランチしかなく、PR を作れない）
