@@ -8,6 +8,10 @@
 | `FRED_API_KEY` | （空） | FRED の API キー（任意）。無くても CSV で取得できる。検索（ECST → SOURCES）に必要。https://fred.stlouisfed.org で無料登録 |
 | `ESTAT_APP_ID` | （空） | **e-Stat のアプリケーション ID**（ログインのメールアドレスではない。マイページ →「API 機能（アプリケーション ID 発行）」で発行する英数字）。日本の公式統計（労働力調査・CPI・賃金・貿易統計・法人企業統計など）に必要。https://www.e-stat.go.jp で無料登録 |
 | `TERMINAL_ECON_AUTO` | `1` | `0` でマクロ統計（ECST）の自動更新を止める（間隔・ON/OFF は画面でも変更可） |
+| `EDINET_API_KEY` | （空） | EDINET API v2 の Subscription-Key。情報ハブ（TOP）の開示（大量保有・自己株買い・公開買付・有報…）に必要。EDINET の「API 利用登録」で無料で発行。**秘密情報。コミットしないこと** |
+| `SEC_USER_AGENT` | （空） | SEC EDGAR に送る連絡先（「名前 メールアドレス」。SEC の規則）。米国株の開示に必要 |
+| `TERMINAL_INFO_AUTO` | `1` | `0` で情報ハブ（TOP）の自動取得を止める（間隔・ON/OFF は画面でも変更可） |
+| `TERMINAL_ENV_FILE` | `<リポジトリ>/.env` | API キーの画面が書き込む `.env` の場所（テストで使う） |
 | `NOTION_TOKEN` | （空） | COV が Notion API を使うためのインテグレーション・トークン。**秘密情報。コミットしないこと**（[COVERAGE.md](COVERAGE.md)） |
 | `NOTION_COVERAGE_DB` / `NOTION_MICRO_PAGE` | （空） | 銘柄マスタのデータベース ID と ATLAS / MICRO のページ ID（COV の SETTINGS でも可） |
 | `COVERAGE_DIR` | `<最初の Excel フォルダ>/Coverage` | カバレッジ・フォルダのルート。決算カレンダー（`_terminal/earnings/calendar.json`）もここに入る。OneDrive に移すときは COV の「ルートごと移す」を使う（SETTINGS のルートが `.env` より優先） |
@@ -22,6 +26,8 @@
 | `TERMINAL_STATIC_DIR` | `<repo>/frontend/dist` | 本番でビルド済みの UI を配信する場所 |
 | `TERMINAL_CORS` | `http://localhost:5173,http://127.0.0.1:5173` | 開発サーバーの CORS |
 | `LOG_LEVEL` | `INFO` | |
+
+**API キーは画面からも設定できます**：TOP → 7) KEYS（または ECST → SOURCES）に `ESTAT_APP_ID`・`FRED_API_KEY`・`EDINET_API_KEY`・`SEC_USER_AGENT` を貼って保存すると、その PC の `.env` に書き込まれ、再起動なしで有効になります（形式を確かめ、画面には伏せ字だけを出す。[INFO.md](INFO.md) §8）。Windows の環境変数に同じ名前があると、次の起動ではそちらが優先されます。
 
 サンプルは [`.env.example`](../.env.example) にあります。リポジトリ直下に `.env` としてコピーすると起動時に自動で読み込みます（`backend/app/config.py` の `load_dotenv`。すでに環境変数で設定されている値は上書きしません。`.env` は `.gitignore` 済み）。
 

@@ -5,9 +5,10 @@
 import { useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { fmtNum } from '../lib/format';
-import { ErrorBox, Loading, useAsync } from '../components/ui';
+import { ErrorBox, Loading, useAsync, useMenu } from '../components/ui';
 import { LineChart } from '../components/LineChart';
 import { GLQuad } from './Trinity';
+import { KeysPanel } from './Info';
 import { useTerminal } from '../ctx';
 
 const TABS = ['MATRIX', 'DASH', 'FLOWS', 'RELEASES', 'BROWSE', 'SERIES', 'SOURCES'] as const;
@@ -34,18 +35,16 @@ export function ECST({ args }: { args?: string }) {
   const [tab, setTab] = useState<Tab>((TABS as readonly string[]).includes(args?.toUpperCase() || '') ? (args!.toUpperCase() as Tab) : 'MATRIX');
   const [sel, setSel] = useState<string>('US.CPI');
   const open = (id: string) => { setSel(id); setTab('SERIES'); };
-  const keys = (e: React.KeyboardEvent) => {
-    if (/^[1-7]$/.test(e.key) && !(e.target as HTMLElement).closest('input, select, textarea')) setTab(TABS[+e.key - 1]);
-  };
+  const menu = useMenu((n) => TABS[n - 1] && setTab(TABS[n - 1]));
   return (
-    <div tabIndex={0} onKeyDown={keys} style={{ outline: 'none' }}>
+    <div ref={menu} data-menu>
       <div className="bb-head">
         <span className="bb-code">ECST</span><span className="bb-title">WORLD ECONOMIC STATISTICS</span><span className="muted">世界経済統計</span>
         <UpdateButton />
       </div>
       <div className="bb-menu">
         {TABS.map((t, i) => (
-          <button key={t} className={`bb-item ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)} title={`${i + 1} キーでも切り替え`}>
+          <button key={t} className={`bb-item ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)} title={`${i + 1} と入力して Enter（${i + 1} <GO>）でも切り替え`}>
             <span className="bb-num">{i + 1})</span> {t} <span className="bb-ja">{TAB_JA[t]}</span>
           </button>
         ))}
@@ -439,6 +438,7 @@ function Sources({ open }: { open: (id: string) => void }) {
                   <td>{q.source === 'fred' && <button className="tb mini" onClick={() => call(() => api.post('/econ/custom', { entry: { id: `X.${x.code}`.slice(0, 60), name: x.title, source: 'fred', code: x.code, freq: ({ D: 'D', W: 'W', M: 'M', Q: 'Q', A: 'A' } as any)[x.freq?.[0]] || 'M', tf: 'lvl', axis: 'growth', country: 'GLOBAL', good: 0 } }), () => toast(`追加: ${x.code}（BROWSE で国・分野を確認）`))}>追加</button>}</td></tr>
               ))}</tbody></table>}
             </div>
+            <KeysPanel />
             <Upload up={up} setUp={setUp} map={map} setMap={setMap} toast={toast} reload={() => st.reload()} />
           </div>
           <div style={{ flex: 1, minWidth: 360 }}>

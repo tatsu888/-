@@ -7,10 +7,14 @@ from pathlib import Path
 os.environ["TERMINAL_NO_DOTENV"] = "1"
 os.environ["TERMINAL_TRINITY_AUTO"] = "0"
 os.environ["TERMINAL_ECON_AUTO"] = "0"
+os.environ["TERMINAL_INFO_AUTO"] = "0"
+for _k in ("EDINET_API_KEY", "SEC_USER_AGENT"):
+    os.environ.pop(_k, None)
 os.environ.pop("FRED_API_KEY", None)
 os.environ.pop("ESTAT_APP_ID", None)
 os.environ["TERMINAL_PROVIDER"] = "sim"
 os.environ["TERMINAL_DATA_DIR"] = tempfile.mkdtemp(prefix="terminal-test-")
+os.environ["TERMINAL_ENV_FILE"] = str(Path(os.environ["TERMINAL_DATA_DIR"]) / "test.env")   # never the real .env
 os.environ["SIM_TICK_SEC"] = "0.2"
 os.environ.pop("TERMINAL_EXCEL_DIRS", None)
 os.environ.pop("TERMINAL_EXCEL_WRITE", None)

@@ -22,6 +22,23 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): { data?: T; 
 }
 
 /** Price cell that flashes green/red when the value ticks. */
+/** Bloomberg-style numbered menu: typing "3" then Enter (3 <GO>) in the command line selects item 3 of the focused
+ *  panel's menu. Digits typed on the panel still go to the command line, so tickers such as 6857 are never swallowed.
+ *  Put the returned ref on the menu's root element (it gets data-menu); CommandLine dispatches the 'menu' event. */
+export function useMenu(onSelect: (n: number) => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  const cb = useRef(onSelect);
+  cb.current = onSelect;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const h = (e: Event) => cb.current((e as CustomEvent<number>).detail);
+    el.addEventListener('menu', h);
+    return () => el.removeEventListener('menu', h);
+  }, []);
+  return ref;
+}
+
 export function Flash({ value, children, className }: { value: number | null | undefined; children: React.ReactNode; className?: string }) {
   const prev = useRef(value);
   const [f, setF] = useState('');

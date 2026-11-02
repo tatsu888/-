@@ -283,3 +283,30 @@ WebSocket：判定が変わると `{"type":"trinity","changes":[...],"at":...}` 
 | POST | /econ/upload（multipart）→ /econ/upload/apply `{token, columns}` | CSV／Excel の取り込み（日付と数値の列を自動で検出） |
 
 websocket：`econ_release`（主要指標の発表）。
+
+## 情報ハブ（/api/info）— [INFO.md](INFO.md)
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /info/items?category&region&q&hits_only&ticker&days&limit | 取得した項目（新しい順）。当たりの銘柄・キーワード付き |
+| GET | /info/feeds | 取得元の一覧と状態（最後の取得・件数・エラー） |
+| POST | /info/feeds `{name, url, category, region}` | 自分の RSS の追加（ID は URL から） |
+| PUT / DELETE | /info/feeds/{id} `{enabled}` | 停止・再開 / 自分の取得元の削除 |
+| POST | /info/feeds/test `{url}` | 追加前の取得テスト（保存しない） |
+| GET / PUT | /info/keywords `{words}` | キーワード |
+| GET | /info/filings?ticker&kind&days&coverage_only | EDINET の開示（PDF のリンク付き）と EDGAR、キーの有無 |
+| GET | /info/edinet/{docID}/pdf | EDINET の書類の PDF（キーはサーバーの中だけ） |
+| GET | /info/news?q&lang | Google ニュースの検索（1 時間保存） |
+| GET | /info/stock/{symbol}?news | 1 銘柄の言及・開示・ニュース（STK の欄） |
+| POST | /info/update?daily | 今すぐ取得（バックグラウンド） |
+| GET | /info/status | 取得元の OK／エラー、件数、最後の巡回、キーの有無、自動取得の設定 |
+| PUT | /info/config `{auto, every_min}` | 自動取得の ON/OFF と間隔（5〜1440 分） |
+
+websocket：`info_alert`（カバレッジ・キーワードの当たり、カバレッジの新しい開示）。
+
+## 設定（/api/settings）
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /settings/keys | API キーの状態（設定済みか・伏せ字・形式の問題）と `.env` の場所 |
+| PUT | /settings/keys `{key, value}` | `.env` に書き込み、すぐに有効にする（空で削除）。形式違い・未知のキーは 400 |

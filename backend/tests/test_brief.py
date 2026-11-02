@@ -18,6 +18,15 @@ def test_sections():
     p = B.market_row("TOPIX", "TVC:TOPIX", "pct", _bars([100.0] * 21 + [110.0]))
     assert abs(p["d1"] - 10) < 1e-9 and abs(p["m1"] - 10) < 1e-9 and p["w1"] is not None
     assert B.market_row("x", "X", "pct", [])["error"]
+    # ニュース・開示: coverage hits first (newest first), then keyword hits; filings by importance of the kind
+    items = [{"title": "kw old", "keywords": ["利上げ"], "tickers": [], "published": "2026-11-01T01:00:00Z"},
+             {"title": "cov", "keywords": [], "tickers": ["6857"], "published": "2026-11-01T00:00:00Z"},
+             {"title": "kw new", "keywords": ["関税"], "tickers": [], "fetched": "2026-11-01T02:00:00Z"}]
+    fil = [{"ticker": "6857", "kind": "臨時報告書", "desc": "a", "at": "2026-11-01T15:00"},
+           {"ticker": "6857", "kind": "大量保有", "desc": "b", "at": "2026-11-01T09:00"}]
+    inf = B.info_section(items, fil)
+    assert [h["title"] for h in inf["hits"]] == ["cov", "kw new", "kw old"] and [f["kind"] for f in inf["filings"]] == ["大量保有", "臨時報告書"]
+    assert len(B.info_section(items * 10, fil, n=5)["hits"]) == 5
     f = B.factor_section([{"factor": "バリュー", "1W": 2.0}, {"factor": "サイズ", "1W": -1.0}, {"factor": "ベータ", "1W": 0.5},
                           {"factor": "モメンタム", "1W": -3.0}, {"factor": "ボラ", "1W": None}])
     assert [x["factor"] for x in f["best"]] == ["バリュー", "ベータ", "サイズ"] and f["worst"][0]["factor"] == "モメンタム"
@@ -79,7 +88,9 @@ def test_generate_saves_files_and_auto_once_a_day(tmp_path, monkeypatch):
         b = r["brief"]
         assert b["health"]["demo"] is True and len(b["markets"]) == len(B.MARKETS) and b["date"] == today.isoformat()
         assert b["auto"]["changes"][0]["to"] == "LONG c2"                      # vs the previous day's snapshot
+        assert b["info"] == {"hits": [], "filings": []}                           # TOP has fetched nothing here
         assert (tmp_path / "Cov" / "_terminal" / "briefs" / f"{today}.md").read_text(encoding="utf-8").startswith(f"# 朝のブリーフ {today}")
+        assert "## ニュース・開示（TOP）" in (tmp_path / "Cov" / "_terminal" / "briefs" / f"{today}.md").read_text(encoding="utf-8")
         assert c.get("/api/brief").json()["dates"][0] == today.isoformat() and c.get(f"/api/brief/{today}").status_code == 200
         assert c.get("/api/brief/2001-01-01").status_code == 404
         assert c.put("/api/brief/config", json={"time": "25:00"}).status_code == 400

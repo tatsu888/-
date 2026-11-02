@@ -75,6 +75,14 @@ export function CommandLine() {
   }, [text]);
 
   async function submit(raw = text) {
+    // "3 <GO>": a menu number for the focused panel (TOP, ECST …), like Bloomberg's numbered screens
+    const menu = /^\d{1,2}$/.test(raw.trim()) ? document.querySelector('.panel.focused [data-menu]') : null;
+    if (menu) {
+      menu.dispatchEvent(new CustomEvent('menu', { detail: +raw.trim() }));
+      setText('');
+      setSugs([]);
+      return;
+    }
     const p = parseCommand(raw);
     if (!p.fn && !p.security) return;
     let sec: string | undefined;

@@ -9,6 +9,7 @@ import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { LineChart } from '../components/LineChart';
 import { WindowSlider, type WindowValue } from '../components/WindowSlider';
 import { useTerminal } from '../ctx';
+import { NewsList } from './Info';
 
 const ts = (d: string) => Math.floor(Date.parse(d) / 1000);
 const dirCls = (d?: string) => (d === 'LONG' ? 'up' : d === 'SHORT' ? 'down' : 'muted');
@@ -250,6 +251,36 @@ function Reactions({ rx, onPick }: { rx: { data?: any; error?: string; loading: 
   );
 }
 
+/** News and filings of one stock: EDINET / EDGAR filings, feed items that mention it, Google News. */
+function StockInfo({ symbol }: { symbol: string }) {
+  const { run } = useTerminal();
+  const r = useAsync(() => api.get<any>(`/info/stock/${encodeURIComponent(symbol)}`), [symbol]);
+  const d = r.data;
+  const hot = (k: string) => ['大量保有', '自己株買い', '公開買付'].includes(k);
+  return (
+    <div className="box" style={{ margin: 6 }}>
+      <h4>ニュース・開示 <button className="tb mini" onClick={() => run('TOP')}>TOP</button></h4>
+      {r.loading && !d && <Loading />}
+      {r.error && <div className="pad muted" style={{ fontSize: 11 }}>{r.error}</div>}
+      {d && (
+        <div className="pad" style={{ fontSize: 11 }}>
+          <div className="muted">開示（EDINET）</div>
+          {d.filings.length ? d.filings.slice(0, 8).map((x: any) => (
+            <div key={x.doc_id}>• <span className="muted">{(x.at || x.date).slice(0, 10)}</span> <span className={hot(x.kind) ? 'yellow' : ''}>{x.kind}</span> {x.desc}
+              <span className="muted"> {x.filer}</span> <a className="tb mini" href={x.pdf} target="_blank" rel="noreferrer">PDF</a></div>
+          )) : <div className="muted">— （EDINET の API キーを TOP → 7) KEYS に入れると自動で取得）</div>}
+          {d.edgar?.length > 0 && <><div className="muted" style={{ marginTop: 4 }}>開示（SEC EDGAR）</div>
+            {d.edgar.slice(0, 6).map((x: any, i: number) => <div key={i}>• <span className="muted">{x.date}</span> {x.form} {x.kind} {x.url && <a className="tb mini" href={x.url} target="_blank" rel="noreferrer">開く</a>}</div>)}</>}
+          {d.items.length > 0 && <><div className="muted" style={{ marginTop: 4 }}>フィードの言及</div>
+            {d.items.slice(0, 6).map((x: any) => <div key={x.guid}>• <a href={x.link} target="_blank" rel="noreferrer">{x.title}</a> <span className="muted">{x.feed_name}</span></div>)}</>}
+          <div className="muted" style={{ marginTop: 4 }}>ニュース（Google ニュース「{d.news_q}」）</div>
+          {d.news_error ? <div className="muted">取得できない: {d.news_error}</div> : <NewsList rows={(d.news || []).slice(0, 8)} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function STK({ symbol }: { symbol: string }) {
   const { run, toast } = useTerminal();
   const r = useAsync(() => api.get<any>(`/stock/${encodeURIComponent(symbol)}/page`), [symbol]);
@@ -310,6 +341,7 @@ export function STK({ symbol }: { symbol: string }) {
               </div> : <div className="pad muted">—</div>}
             </div>
             {cv && <Quarters key={cv.ticker} ticker={cv.ticker} symbol={symbol} />}
+            <StockInfo symbol={symbol} />
             <div className="box" style={{ margin: 6 }}>
               <h4>決算・書き起こし</h4>
               <div className="pad">

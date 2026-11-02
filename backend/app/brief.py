@@ -166,6 +166,16 @@ def econ_section(dash: dict[str, Any] | None, releases: list[dict[str, Any]], fl
     return {"regions": regions, "releases": rel, "cb_liquidity": {k: cb.get(k) for k in ("m1", "m3", "m12")} if cb else None}
 
 
+def info_section(items: list[dict[str, Any]], filings: list[dict[str, Any]], n: int = 15) -> dict[str, Any]:
+    """ニュース・開示（TOP）: feed items that hit the coverage or a keyword (coverage first), coverage filings."""
+    newest = sorted(items, key=lambda x: x.get("published") or x.get("fetched") or "", reverse=True)
+    hits = ([x for x in newest if x.get("tickers")] + [x for x in newest if not x.get("tickers")])[:n]
+    order = {"大量保有": 0, "公開買付": 1, "自己株買い": 2, "臨時報告書": 3, "有価証券報告書": 4, "半期・四半期": 5}
+    fil = sorted(sorted(filings, key=lambda x: x.get("at") or x.get("date") or "", reverse=True), key=lambda x: order.get(x.get("kind"), 9))[:n]
+    return {"hits": [{k: x.get(k) for k in ("title", "link", "feed_name", "tickers", "keywords", "published")} for x in hits],
+            "filings": [{k: x.get(k) for k in ("ticker", "name", "kind", "desc", "filer", "at", "pdf")} for x in fil]}
+
+
 # ---- markdown ---------------------------------------------------------------------------------------
 def _p(v: Any, d: int = 1, sign: bool = True) -> str:
     if v is None:
@@ -253,6 +263,15 @@ def render_md(b: dict[str, Any]) -> str:
     for r in ec.get("releases") or []:
         sz = f"（サプライズ {r['surprise']:+.1f}）" if r.get("surprise") is not None else ""
         out.append(f"  - 発表 {r['country']} {r['name']} {r['ref']}: {r['value']:,.2f}{sz}")
+    inf = b.get("info") or {}
+    out += ["", "## ニュース・開示（TOP）", ""]
+    for f in inf.get("filings") or []:
+        out.append(f"- 開示 {f['ticker']} {f.get('name') or ''}: {f['kind']} — {f['desc']}（{f.get('filer') or ''}）")
+    for h in inf.get("hits") or []:
+        tag = ",".join(h.get("tickers") or []) or "/".join(h.get("keywords") or [])
+        out.append(f"- [{tag}] {h['title']}（{h.get('feed_name') or ''}）")
+    if not inf.get("filings") and not inf.get("hits"):
+        out.append("- 当たりなし")
     m = b["margin"]
     out += ["", f"## 信用残（{m.get('last_date') or '未取り込み'}）", ""]
     for r in m["rows"]:

@@ -113,6 +113,11 @@ async def gather(source: str | None = None, today: dt.date | None = None) -> dic
     since = (dt.datetime.now() - dt.timedelta(days=2)).isoformat()
     econ = B.econ_section(EC._read("dashboard.json", None), [r for r in EC._read("state.json", {}).get("releases", []) if r["at"] >= since],
                           EC._read("flows.json", None))
+    # ニュース・開示（TOP の取得済みデータだけを読む）
+    from . import api_info as INF
+    since_utc = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).isoformat()[:19]
+    hits = [x for x in INF._read("items.json", []) if (x.get("tickers") or x.get("keywords")) and (x.get("published") or x.get("fetched") or "") >= since_utc]
+    info = B.info_section(hits, INF._edinet_rows(days=2))
     # 信用残
     margin = B.margin_section(cov["items"], mstore().series)
     errs = sorted((latest or {}).get("errors", {}).keys())
@@ -124,7 +129,7 @@ async def gather(source: str | None = None, today: dt.date | None = None) -> dic
         "カバレッジ": f"{len(cov['items'])} 銘柄",
         "信用残": margin.get("last_date") or "未取り込み（MRGN）"}}
     return {"date": today.isoformat(), "generated_at": dt.datetime.now().isoformat(timespec="seconds"), "markets": markets,
-            "factors": factors, "auto": auto, "earnings": earnings, "portfolio": portfolio, "margin": margin, "econ": econ,
+            "factors": factors, "auto": auto, "earnings": earnings, "portfolio": portfolio, "margin": margin, "econ": econ, "info": info,
             "health": health}
 
 

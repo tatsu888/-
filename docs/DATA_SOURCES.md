@@ -91,6 +91,10 @@ Yahoo への変換は `backend/app/providers/yahoo.py` の `to_yahoo()` で行�
 | e-Stat（政府統計の総合窓口） | REST API 3.0（`ESTAT_APP_ID`） | `econ/sources.py`, ECST | 表は検索で見つけて固定（ECON.md §2）。利用規約に従いクレジットを表示 |
 | 中国国家統計局（data.stats.gov.cn）／英国 ONS／イングランド銀行／カナダ統計局／ブラジル中銀 | 各公式サイトの公開 API・データ（鍵なし） | `econ/sources.py`, ECST | 中国は指標の木を名前でたどって指標コードを決める。いずれも未検証（この環境は通信制限） |
 | ECB Data Portal／Eurostat／世界銀行／DBnomics | SDMX csv／JSON-stat／JSON | `econ/sources.py`, ECST | 鍵なし |
+| 中銀・政府・規制当局・ニュースの RSS（FRB・ECB・BoE・日銀・BIS・経産省・内閣府・官邸・金融庁・SEC・NHK・Yahoo!ニュース・CNBC・MarketWatch） | RSS 2.0／Atom／RSS 1.0 RDF | `info/feeds.py`, `api_info.py`, TOP | 見出しと要約だけ（本文は元のサイト）。URL は未検証（日銀は URL 未確認）。自分の RSS を追加可能 |
+| EDINET（金融庁） | API v2 `documents.json`（`EDINET_API_KEY`）、EDINET コード一覧（zip） | `info/filings.py`, `api_info.py`, TOP・STK・BRIEF | 提出者ではなく対象の会社で銘柄に結び付け。PDF は端末経由（キーはサーバーの中だけ） |
+| SEC EDGAR | `company_tickers.json`、`submissions/CIK….json`（`SEC_USER_AGENT`） | `info/filings.py`, `api_info.py`, TOP・STK | 米国株のみ。1 日 1 回、毎秒 10 回の制限内 |
+| Google ニュース | RSS 検索（`news.google.com/rss/search`） | `api_info.py`, TOP・STK | 1 時間保存。仕様変更で失敗し得る |
 | 財務省 対外対内証券投資・JPX 投資部門別 | ファイル取り込み（ECST → SOURCES） | `api_econ.py` | 形式は日付の列と数値の列を自動で検出 |
 | JPX 決算発表予定日一覧 | 一覧ページの xlsx をダウンロード（`config.jpx_index`）、またはユーザーがアップロード | `earnings.py`, `api_earnings.py`, COV・STK | 見出しを文字で判定（決算発表予定日／コード／決算期末／種別）。**ダウンロードは未検証**（この環境では通信が拒否された）。決算日と決算期末月の公式な出所 |
 | JPX 銘柄別信用取引週末残高 | ユーザーが CSV / XLSX をアップロード、または URL を指定 | `margin.py`, `MRGN` | 列名で自動判定（コード／売残／買残）。毎週火曜に前週末分が公表 |

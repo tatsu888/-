@@ -35,7 +35,11 @@ DEFAULTS: dict[str, Any] = {
     "econ_custom": [],      # ECON: the user's own series (FRED / e-Stat / ECB / Eurostat / World Bank / DBnomics / upload)
     "econ_overrides": {},   # ECON: code fixes and pinned e-Stat tables {id: {code?, resolved?}}
     "econ_disabled": [],    # ECON: series switched off
-    "econ_config": {"auto": True, "every_min": 30},   # ECON: automatic updates (checks the series that are due)   # BRIEF: made by the first AUTO run at or after this time
+    "econ_config": {"auto": True, "every_min": 30},   # ECON: automatic updates (checks the series that are due)
+    "info_feeds_custom": [],     # INFO: the user's own feeds [{id, name, url, category, region}]
+    "info_feeds_disabled": [],   # INFO: feeds switched off
+    "info_keywords": None,       # INFO: alert words (None → the defaults)
+    "info_config": {"auto": True, "every_min": 20},   # INFO: feeds every 20 minutes, filings once a day   # BRIEF: made by the first AUTO run at or after this time
     "coverage": {"items": [], "pages": {}, "config": {"layout": "sector"}},  # COV: Notion 銘柄マスタ + local folders
     "themes": [],         # THEME baskets [{id, name, fact, reason, driver, driver_kind, driver_dir, longs, shorts, hedge}]
     "trinity_config": {"enabled": True, "interval_min": 60, "extra": [], "exclude": [], "max_symbols": 400,

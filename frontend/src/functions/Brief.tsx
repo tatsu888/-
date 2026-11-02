@@ -137,6 +137,18 @@ export function BRIEF() {
             ) : <div className="pad muted">14 日以内に決算のある保有銘柄なし（保有 {b.portfolio.positions}）<button className="tb mini" onClick={() => run('PORT')}>PORT</button></div>}
           </div>
           <div className="box">
+            <h4>ニュース・開示（TOP）</h4>
+            <div className="pad" style={{ fontSize: 11 }}>
+              {(b.info?.filings || []).map((f: any, i: number) => (
+                <div key={'f' + i}>• <span className="amber" style={{ cursor: 'pointer' }} onClick={() => stock(f.ticker)}>{f.ticker}</span> {f.name} <span className={['大量保有', '公開買付', '自己株買い'].includes(f.kind) ? 'yellow' : ''}>{f.kind}</span> {f.desc} <span className="muted">{f.filer}</span>{f.pdf && <a className="tb mini" href={f.pdf} target="_blank" rel="noreferrer">PDF</a>}</div>
+              ))}
+              {(b.info?.hits || []).map((h: any, i: number) => (
+                <div key={'h' + i}>• {(h.tickers || []).map((t: string) => <span key={t} className="amber" style={{ cursor: 'pointer' }} onClick={() => stock(t)}>[{t}] </span>)}{!h.tickers?.length && <span className="muted">[{(h.keywords || []).join('/')}] </span>}<a href={h.link} target="_blank" rel="noreferrer">{h.title}</a> <span className="muted">{h.feed_name}</span></div>
+              ))}
+              {!b.info?.filings?.length && !b.info?.hits?.length && <div className="muted">当たりなし <button className="tb mini" onClick={() => run('TOP')}>TOP</button></div>}
+            </div>
+          </div>
+          <div className="box">
             <h4>マクロ統計（ECST）</h4>
             <div className="pad" style={{ fontSize: 11 }}>
               {b.econ?.regions?.length ? (
