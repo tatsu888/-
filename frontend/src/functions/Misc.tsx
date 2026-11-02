@@ -133,7 +133,7 @@ export function PORT() {
   useEffect(() => void store.get<Pos[]>('portfolio', []).then(setPos), []);
   useEffect(() => setF((x) => ({ ...x, symbol: security })), [security]);
   const quotes = useQuotes((pos ?? []).map((p) => p.symbol));
-  const [tab, setTab] = useState<'pos' | 'risk'>('pos');
+  const [tab, setTab] = useState<'pos' | 'risk' | 'blotter'>('pos');
   if (!pos) return <Loading />;
   const save = (p: Pos[]) => (setPos(p), store.set('portfolio', p));
   const rows = pos.map((p) => {
@@ -155,8 +155,10 @@ export function PORT() {
         <span style={{ flex: 1 }} />
         <button className={`tb ${tab === 'pos' ? 'on' : ''}`} onClick={() => setTab('pos')}>POSITIONS</button>
         <button className={`tb ${tab === 'risk' ? 'on' : ''}`} onClick={() => setTab('risk')} disabled={!pos.length}>RISK</button>
+        <button className={`tb ${tab === 'blotter' ? 'on' : ''}`} onClick={() => setTab('blotter')}>BLOTTER</button>
       </div>
       {tab === 'risk' && <PortRisk positions={pos} />}
+      {tab === 'blotter' && <Blotter onSync={(p) => (save(p), setTab('pos'))} />}
       {tab === 'pos' && (
       <table className="t">
         <thead><tr><th className="l">SECURITY</th><th>QTY</th><th>AVG COST</th><th>LAST</th><th>%CHG</th><th>MKT VAL</th><th>WEIGHT</th><th>DAY P&L</th><th>UNREAL P&L</th><th>P&L %</th><th /></tr></thead>
@@ -190,7 +192,8 @@ function PortRisk({ positions }: { positions: Pos[] }) {
   const [bench, setBench] = useState('SP:SPX');
   const [lookback, setLookback] = useState(252);
   const [base, setBase] = useState('USD');
-  const r = useAsync(() => api.post<any>('/analytics/portfolio_risk', { positions: positions.map((p) => ({ symbol: p.symbol, qty: p.qty })), benchmark: bench, lookback, base_currency: base }), [JSON.stringify(positions), bench, lookback, base]);
+  const [fxOn, setFxOn] = useState(true);
+  const r = useAsync(() => api.post<any>('/analytics/portfolio_risk', { positions: positions.map((p) => ({ symbol: p.symbol, qty: p.qty })), benchmark: bench, lookback, base_currency: base, include_fx: fxOn }), [JSON.stringify(positions), bench, lookback, base, fxOn]);
   const d = r.data;
   return (
     <div>
@@ -201,6 +204,7 @@ function PortRisk({ positions }: { positions: Pos[] }) {
         <select className="inp" value={lookback} onChange={(e) => setLookback(+e.target.value)}>{[60, 126, 252, 504].map((x) => <option key={x}>{x}</option>)}</select>
         <span className="lbl">BASE CCY</span>
         {['USD', 'JPY', 'EUR'].map((c) => <button key={c} className={`tb ${base === c ? 'on' : ''}`} onClick={() => setBase(c)}>{c}</button>)}
+        <button className={`tb ${fxOn ? 'on' : ''}`} onClick={() => setFxOn(!fxOn)} title="include FX moves of non-base-currency positions in returns">FX RISK</button>
       </div>
       {r.loading && <Loading />}
       <ErrorBox error={r.error || d?.error} />
@@ -365,6 +369,80 @@ function Diagnostics() {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+interface Trade { id: string; time: string; symbol: string; side: 'buy' | 'sell'; qty: number; price: number; fee: number; note?: string }
+
+function Blotter({ onSync }: { onSync: (p: Pos[]) => void }) {
+  const { security, toast } = useTerminal();
+  const [trades, setTrades] = useState<Trade[] | null>(null);
+  const [f, setF] = useState({ time: new Date().toISOString().slice(0, 10), symbol: security, side: 'buy' as 'buy' | 'sell', qty: '', price: '', fee: '0', note: '' });
+  const pnl = useAsync(() => api.get<any>('/analytics/blotter'), [trades?.length, JSON.stringify(trades)]);
+  useEffect(() => void store.get<Trade[]>('trades', []).then(setTrades), []);
+  useEffect(() => setF((x) => ({ ...x, symbol: security })), [security]);
+  const quotes = useQuotes(Object.keys(pnl.data?.positions ?? {}));
+  if (!trades) return <Loading />;
+  const save = async (t: Trade[]) => {
+    setTrades(t);
+    await store.set('trades', t);
+    pnl.reload();
+  };
+  const add = () => {
+    if (!f.qty || !f.price) return;
+    save([...trades, { id: Math.random().toString(36).slice(2, 10), time: f.time, symbol: f.symbol, side: f.side, qty: +f.qty, price: +f.price, fee: +f.fee || 0, note: f.note }]);
+    setF({ ...f, qty: '', price: '', note: '' });
+  };
+  const positions = Object.entries<any>(pnl.data?.positions ?? {});
+  return (
+    <div>
+      <div className="toolbar">
+        <input className="inp" type="date" value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} />
+        <input className="inp" style={{ width: 120 }} value={f.symbol} onChange={(e) => setF({ ...f, symbol: e.target.value.toUpperCase() })} />
+        <button className={`tb ${f.side === 'buy' ? 'green' : ''}`} onClick={() => setF({ ...f, side: 'buy' })}>BUY</button>
+        <button className={`tb ${f.side === 'sell' ? 'red' : ''}`} onClick={() => setF({ ...f, side: 'sell' })}>SELL</button>
+        <input className="inp" style={{ width: 70 }} placeholder="qty" value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
+        <input className="inp" style={{ width: 80 }} placeholder="price" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} />
+        <input className="inp" style={{ width: 60 }} placeholder="fee" value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} />
+        <input className="inp" style={{ width: 160 }} placeholder="note / rationale" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+        <button className="tb green" onClick={add}>ADD TRADE</button>
+        <button className="tb" disabled={!positions.length} onClick={() => {
+          const p: Pos[] = positions.filter(([, x]) => x.qty).map(([s, x]) => ({ id: s, symbol: s, qty: x.qty, cost: x.avg_cost }));
+          if (confirm(`replace POSITIONS with ${p.length} positions from the blotter?`)) (onSync(p), toast('positions synced from blotter'));
+        }}>SYNC → POSITIONS</button>
+      </div>
+      <div className="note">average-cost accounting · shorts supported · realized P&L net of fees: <span className={cls(pnl.data?.total_realized_net)}>{fmtNum(pnl.data?.total_realized_net, 0)}</span></div>
+      <table className="t">
+        <thead><tr><th className="l">SECURITY</th><th>QTY</th><th>AVG COST</th><th>LAST</th><th>UNREALIZED</th><th>REALIZED</th><th>FEES</th></tr></thead>
+        <tbody>
+          {positions.map(([s, x]) => {
+            const last = quotes.get(s)?.last;
+            const unreal = last != null && x.qty ? (last - x.avg_cost) * x.qty : null;
+            return (
+              <tr key={s}>
+                <td className="l sym">{shortSym(s)}</td><td className={cls(x.qty)}>{fmtNum(x.qty, 0)}</td><td>{fmtPrice(x.avg_cost)}</td><td>{fmtPrice(last)}</td>
+                <td className={cls(unreal)}>{fmtNum(unreal, 0)}</td><td className={cls(x.realized)}>{fmtNum(x.realized, 0)}</td><td className="muted">{fmtNum(x.fees, 0)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div className="note">TRADES</div>
+      <table className="t">
+        <thead><tr><th className="l">DATE</th><th className="l">SECURITY</th><th className="l">SIDE</th><th>QTY</th><th>PRICE</th><th>FEE</th><th className="l">NOTE</th><th /></tr></thead>
+        <tbody>
+          {[...trades].reverse().map((t) => (
+            <tr key={t.id}>
+              <td className="l muted">{t.time}</td><td className="l sym">{shortSym(t.symbol)}</td>
+              <td className={`l ${t.side === 'buy' ? 'up' : 'down'}`}>{t.side.toUpperCase()}</td>
+              <td>{fmtNum(t.qty, 0)}</td><td>{fmtPrice(t.price)}</td><td className="muted">{fmtNum(t.fee, 0)}</td>
+              <td className="l muted">{t.note}</td>
+              <td><span className="muted" style={{ cursor: 'pointer' }} onClick={() => confirm('delete trade?') && save(trades.filter((x) => x.id !== t.id))}>✕</span></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -100,6 +100,7 @@ export function SPRD({ symbol, args }: { symbol: string; args?: string }) {
           <LineChart lines={lines} height={200} baseline={0} />
           <div className="note">PRICE RATIO A/B</div>
           <LineChart lines={ratio} height={160} />
+          <PairBacktest a={a} b={b} entryZ={ez} zWindow={win} />
         </>
       )}
     </div>
@@ -348,6 +349,56 @@ export function OV({ symbol }: { symbol: string }) {
         </tbody>
       </table>
       <div className="note">Black-Scholes-Merton (European, continuous dividend yield). Not suitable for American early exercise.</div>
+    </div>
+  );
+}
+
+function PairBacktest({ a, b, entryZ, zWindow }: { a: string; b: string; entryZ: number; zWindow: number }) {
+  const [p, setP] = useState({ hedge_window: 120, exit_z: 0.5, stop_z: 4, fee_bps: 5 });
+  const [run, setRun] = useState(0);
+  const r = useAsync(() => (run ? api.post<any>('/analytics/pair_backtest', { a, b, z_window: zWindow, entry_z: entryZ, ...p }) : Promise.resolve(null)), [run, a, b, entryZ, zWindow]);
+  const d = r.data;
+  const lines = useMemo(() => (d?.equity ? [{ name: 'pair strategy', data: d.equity }] : []), [d]);
+  const hedge = useMemo(() => (d?.hedge ? [{ name: 'rolling hedge ratio', data: d.hedge, color: '#a98bff' }] : []), [d]);
+  return (
+    <div className="box" style={{ margin: 6 }}>
+      <h4>PAIR TRADE BACKTEST — rolling hedge (no look-ahead)</h4>
+      <div className="toolbar">
+        {(Object.keys(p) as (keyof typeof p)[]).map((k) => (
+          <span key={k}><span className="lbl">{k}</span><input className="inp" style={{ width: 48 }} value={p[k]} onChange={(e) => setP({ ...p, [k]: +e.target.value || 0 })} /></span>
+        ))}
+        <span className="muted">entry |z| {entryZ}, z window {zWindow} (from above)</span>
+        <button className="tb green" onClick={() => setRun((x) => x + 1)}>RUN BACKTEST</button>
+      </div>
+      {r.loading && run > 0 && <Loading />}
+      <ErrorBox error={r.error || d?.error} />
+      {d?.stats && (
+        <>
+          <div className="kv" style={{ gridTemplateColumns: 'repeat(4, max-content 1fr)' }}>
+            <span>Total return</span><span className={cls(d.stats.total_return_pct)}>{fmtPct(d.stats.total_return_pct)}</span>
+            <span>Sharpe</span><span>{fmtNum(d.stats.sharpe, 2)}</span>
+            <span>Max DD</span><span className="down">{fmtPct(d.stats.max_drawdown_pct)}</span>
+            <span>Trades</span><span>{d.stats.trades} ({d.stats.stops} stops)</span>
+            <span>Win rate</span><span>{fmtPct(d.stats.win_rate_pct, 0, false)}</span>
+            <span>Avg holding</span><span>{fmtNum(d.stats.avg_holding_days, 1)} days</span>
+          </div>
+          <LineChart lines={lines} height={180} baseline={1} />
+          <LineChart lines={hedge} height={120} />
+          <table className="t">
+            <thead><tr><th className="l">SIDE</th><th className="l">ENTRY</th><th>z</th><th>HEDGE</th><th className="l">EXIT</th><th>z</th><th className="l">REASON</th><th>RETURN</th></tr></thead>
+            <tbody>
+              {[...d.trades].reverse().slice(0, 40).map((t: any, i: number) => (
+                <tr key={i}>
+                  <td className="l">{t.side}</td><td className="l muted">{t.entry}</td><td>{fmtNum(t.entry_z, 2)}</td><td>{fmtNum(t.hedge, 2)}</td>
+                  <td className="l muted">{t.exit ?? 'open'}</td><td>{fmtNum(t.exit_z, 2)}</td><td className={`l ${t.reason === 'stop' ? 'down' : ''}`}>{t.reason}</td>
+                  <td className={cls(t.return_pct)}>{fmtPct(t.return_pct)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="note">{d.note}. Equity is per unit of gross exposure; fees on both legs at entry and exit.</div>
+        </>
+      )}
     </div>
   );
 }

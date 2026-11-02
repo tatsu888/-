@@ -194,6 +194,7 @@ class RiskReq(BaseModel):
     positions: list[dict[str, Any]]   # [{symbol, qty}]
     benchmark: str | None = "SP:SPX"
     base_currency: str = "USD"
+    include_fx: bool = True           # convert each position's returns into the base currency
     lookback: int = Field(252, ge=30, le=2000)
     source: str | None = None
 
@@ -205,12 +206,65 @@ async def portfolio_risk(req: RiskReq):
         raise HTTPException(400, "no positions")
     series, errors = await _many(syms + ([req.benchmark] if req.benchmark else []), "1D", req.lookback + 30, req.source)
     pos = [{"symbol": p["symbol"], "qty": float(p["qty"])} for p in req.positions if p.get("symbol") in series]
-    fx, fx_err = await _fx_to_base(syms, req.base_currency.upper(), req.source)
+    base = req.base_currency.upper()
+    fx, fx_err = await _fx_to_base(syms, base, req.source)
     errors.update(fx_err)
+    fx_series = await _fx_series(syms, base, req.lookback + 30, req.source) if req.include_fx else {}
     res = quant.portfolio_risk(pos, {s: series[s] for s in syms if s in series},
                                series.get(req.benchmark) if req.benchmark else None, req.lookback,
-                               fx, req.base_currency.upper())
+                               fx, base, fx_series)
     return {**res, "errors": errors}
+
+
+async def _fx_series(symbols: list[str], base: str, bars: int, source: str | None) -> dict[str, dict[str, float]]:
+    """{symbol: {date: base per 1 unit of the symbol's currency}} for non-base-currency symbols."""
+    out: dict[str, dict[str, float]] = {}
+    cache: dict[str, dict[str, float]] = {}
+    for s in symbols:
+        ccy = quant.currency_of(s)
+        if ccy == base:
+            continue
+        if ccy not in cache:
+            cache[ccy] = {}
+            for pair, invert in quant.fx_pairs(ccy, base):
+                try:
+                    b = await S.history(pair, "1D", bars, source)
+                except HTTPException:
+                    continue
+                if b:
+                    cache[ccy] = {d: (1 / v if invert else v) for d, v in quant.closes_by_date(b).items()}
+                    break
+        if cache[ccy]:
+            out[s] = cache[ccy]
+    return out
+
+
+class PairBtReq(BaseModel):
+    a: str
+    b: str
+    hedge_window: int = Field(120, ge=20, le=750)
+    z_window: int = Field(60, ge=10, le=500)
+    entry_z: float = 2.0
+    exit_z: float = 0.5
+    stop_z: float = 4.0
+    fee_bps: float = Field(5.0, ge=0, le=200)
+    bars: int = Field(1500, ge=200, le=5000)
+    source: str | None = None
+
+
+@router.post("/pair_backtest")
+async def pair_backtest(req: PairBtReq):
+    series, errors = await _many([req.a, req.b], "1D", req.bars, req.source)
+    if len(series) < 2:
+        raise HTTPException(502, f"history unavailable: {errors}")
+    return {"a": req.a, "b": req.b, **quant.pair_backtest(series[req.a], series[req.b], req.hedge_window, req.z_window,
+                                                          req.entry_z, req.exit_z, req.stop_z, req.fee_bps)}
+
+
+@router.get("/blotter")
+async def blotter():
+    """Positions & realized P&L derived from the trade blotter (store key 'trades')."""
+    return quant.blotter_positions(S.store.get("trades") or [])
 
 
 async def _fx_to_base(symbols: list[str], base: str, source: str | None) -> tuple[dict[str, float], dict[str, str]]:

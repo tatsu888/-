@@ -136,3 +136,54 @@ def test_fx_pair_convention():
     assert quant.fx_pairs("EUR", "USD")[0] == ("FX:EURUSD", False)
     assert quant.fx_pairs("USD", "JPY")[0] == ("FX:USDJPY", False)
     assert quant.fx_pairs("JPY", "EUR")[0] == ("FX:EURJPY", True)
+
+
+def test_pair_backtest_profits_on_mean_reverting_spread_without_lookahead():
+    rng = random.Random(21)
+    lb, sp = [math.log(100)], [0.0]
+    for _ in range(900):
+        lb.append(lb[-1] + rng.gauss(0, 0.01))
+        sp.append(0.85 * sp[-1] + rng.gauss(0, 0.01))
+    la = [x + s + 0.3 for x, s in zip(lb, sp)]
+    mk = lambda ls: [make_bar(T0 + DAY * i, math.exp(v), math.exp(v), math.exp(v), math.exp(v), 0) for i, v in enumerate(ls)]  # noqa: E731
+    res = quant.pair_backtest(mk(la), mk(lb), hedge_window=120, z_window=40, fee_bps=2)
+    assert res["stats"]["trades"] > 5 and res["stats"]["total_return_pct"] > 0
+    # the hedge ratio estimate should be near the true 1.0
+    assert abs(res["hedge"][-1]["value"] - 1.0) < 0.2
+    # independent walks: no systematic edge expected (just check it runs)
+    rw = [math.log(100)]
+    for _ in range(900):
+        rw.append(rw[-1] + rng.gauss(0, 0.01))
+    assert "stats" in quant.pair_backtest(mk(rw), mk(lb))
+
+
+def test_blotter_average_cost_long_short_flip():
+    trades = [
+        {"id": "1", "time": "2026-01-01", "symbol": "A", "side": "buy", "qty": 100, "price": 10, "fee": 1},
+        {"id": "2", "time": "2026-01-02", "symbol": "A", "side": "buy", "qty": 100, "price": 12, "fee": 1},
+        {"id": "3", "time": "2026-01-03", "symbol": "A", "side": "sell", "qty": 150, "price": 15, "fee": 1},
+        {"id": "4", "time": "2026-01-04", "symbol": "A", "side": "sell", "qty": 100, "price": 14, "fee": 1},  # flip short 50
+        {"id": "5", "time": "2026-01-05", "symbol": "A", "side": "buy", "qty": 50, "price": 13, "fee": 0},   # cover
+    ]
+    r = quant.blotter_positions(trades)
+    p = r["positions"]["A"]
+    # avg 11 → sell 150 @15: +600; sell 100 @14: close 50 @14 (+150), short 50 @14; cover @13: +50
+    assert abs(p["realized"] - 800) < 1e-9 and p["qty"] == 0 and p["fees"] == 4
+    assert abs(r["total_realized_net"] - 796) < 1e-9
+
+
+def test_portfolio_risk_includes_fx_moves():
+    rng = random.Random(4)
+    j = series([0.0] * 100, start=3000.0)                       # flat in JPY
+    fx = {}
+    rate = 1 / 150
+    import datetime as dt
+    for i in range(101):
+        fx[dt.datetime.fromtimestamp(T0 + DAY * i, tz=dt.timezone.utc).strftime("%Y-%m-%d")] = rate
+        rate *= 1 + rng.gauss(0, 0.007)                          # USD per JPY moves
+    a = series([0.0] * 100, start=100.0)
+    pos = [{"symbol": "TSE:J", "qty": 1}, {"symbol": "NASDAQ:A", "qty": 1}]
+    no_fx = quant.portfolio_risk(pos, {"TSE:J": j, "NASDAQ:A": a}, None, fx_to_base={"TSE:J": 1 / 150})
+    with_fx = quant.portfolio_risk(pos, {"TSE:J": j, "NASDAQ:A": a}, None, fx_to_base={"TSE:J": 1 / 150},
+                                   fx_series={"TSE:J": fx})
+    assert no_fx["vol_annual"] == 0 and with_fx["vol_annual"] > 0 and with_fx["fx_included"] == ["TSE:J"]

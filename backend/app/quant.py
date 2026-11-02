@@ -299,12 +299,20 @@ def fx_pairs(ccy: str, base: str) -> list[tuple[str, bool]]:
 
 def portfolio_risk(positions: list[dict[str, Any]], series: dict[str, list[Bar]], bmk: list[Bar] | None,
                    lookback: int = 252, fx_to_base: dict[str, float] | None = None,
-                   base_currency: str = "USD") -> dict[str, Any]:
+                   base_currency: str = "USD", fx_series: dict[str, dict[str, float]] | None = None) -> dict[str, Any]:
     """positions: [{symbol, qty}]. Market value = qty × last close × fx_to_base[symbol] (1.0 when missing).
     Weights are signed (shorts negative) relative to gross exposure. Returns are local-currency
     (FX moves of the positions are not included in the risk numbers)."""
     fx_to_base = fx_to_base or {}
     rets = {s: returns_by_date(b) for s, b in series.items() if b}
+    # base-currency returns: (1 + r_local)(1 + r_fx) − 1, with fx = base per 1 unit of local currency
+    fx_included = []
+    for s, fx in (fx_series or {}).items():
+        if s in rets and fx:
+            fd = sorted(fx)
+            fx_ret = {fd[i]: fx[fd[i]] / fx[fd[i - 1]] - 1 for i in range(1, len(fd)) if fx[fd[i - 1]]}
+            rets[s] = {d: (1 + r) * (1 + fx_ret[d]) - 1 for d, r in rets[s].items() if d in fx_ret}
+            fx_included.append(s)
     pos = [p for p in positions if p["symbol"] in rets and series[p["symbol"]]]
     if not pos:
         return {"error": "no positions with history"}
@@ -347,8 +355,10 @@ def portfolio_risk(positions: list[dict[str, Any]], series: dict[str, list[Bar]]
         "correlation": {a: {b: (cov[a][b] / math.sqrt(cov[a][a] * cov[b][b]) if cov[a][a] and cov[b][b] else None)
                             for b in syms} for a in syms},
         "base_currency": base_currency, "fx_to_base": {s: fx_to_base.get(s, 1.0) for s in syms},
+        "fx_included": fx_included,
         "note": (f"historical simulation on common trading days; market values in {base_currency}; "
-                 "position returns in local currency (FX risk not included)"),
+                 + ("returns in base currency incl. FX moves for " + ", ".join(fx_included) if fx_included
+                    else "position returns in local currency (FX risk not included)")),
     }
     if bmk:
         rb = returns_by_date(bmk)
@@ -387,3 +397,122 @@ def peer_stats(rows: dict[str, dict[str, Any]], target: str, fields: list[str]) 
                   "vs_median_pct": ((tv / _quantile(vals, 0.5) - 1) * 100
                                     if isinstance(tv, (int, float)) and _quantile(vals, 0.5) else None)}
     return out
+
+
+# ---------------------------------------------------------------------------
+# SPRD backtest — rolling hedge ratio, z-score entry/exit/stop (no look-ahead)
+# ---------------------------------------------------------------------------
+def pair_backtest(a: list[Bar], b: list[Bar], hedge_window: int = 120, z_window: int = 60, entry_z: float = 2.0,
+                  exit_z: float = 0.5, stop_z: float = 4.0, fee_bps: float = 5.0) -> dict[str, Any]:
+    """Mean-reversion pair trade. On each day t (after close):
+      * hedge ratio h_t = OLS slope of ln A on ln B over the trailing ``hedge_window`` days (≤ t)
+      * spread s = ln A − h_t·ln B; z = (s_t − mean)/sd over the trailing ``z_window`` spreads (same h_t)
+      * enter short spread when z > entry, long when z < −entry; exit when |z| < exit; stop when |z| > stop
+    The position chosen at t's close earns day t+1 returns: pos × (rA − h_entry·rB) / (1 + |h_entry|).
+    """
+    ca, cb = closes_by_date(a), closes_by_date(b)
+    dates = sorted(set(ca) & set(cb))
+    need = max(hedge_window, z_window) + 5
+    if len(dates) < need + 20:
+        return {"error": f"need ≥ {need + 20} common days, have {len(dates)}"}
+    la = [math.log(ca[d]) for d in dates]
+    lb = [math.log(cb[d]) for d in dates]
+    pos, h_entry, fee = 0, 0.0, fee_bps / 10000
+    equity, eq_curve, zs, trades = 1.0, [], [], []
+    open_t: dict[str, Any] | None = None
+    for t in range(need, len(dates) - 1):
+        xs, ys = lb[t - hedge_window + 1: t + 1], la[t - hedge_window + 1: t + 1]
+        (c, h), _ = ols([[1.0, x] for x in xs], ys)
+        spreads = [la[i] - h * lb[i] for i in range(t - z_window + 1, t + 1)]
+        m, sd = _mean(spreads), _sd(spreads)
+        z = (spreads[-1] - m) / sd if sd > 0 else 0.0
+        zs.append({"date": dates[t], "z": z, "hedge": h})
+        target = pos
+        if pos == 0:
+            if z > entry_z:
+                target = -1
+            elif z < -entry_z:
+                target = 1
+        elif abs(z) < exit_z or abs(z) > stop_z or (pos == 1 and z > entry_z) or (pos == -1 and z < -entry_z):
+            target = 0
+        if target != pos:
+            equity *= 1 - fee * 2  # two legs
+            if pos != 0 and open_t is not None:
+                open_t.update(exit=dates[t], exit_z=z, reason="stop" if abs(z) > stop_z else "exit")
+                open_t["return_pct"] = (equity / open_t["_eq"] - 1) * 100
+                open_t.pop("_eq")
+                trades.append(open_t)
+                open_t = None
+            if target != 0:
+                h_entry = h
+                open_t = {"side": "LONG spread (long A / short B)" if target == 1 else "SHORT spread (short A / long B)",
+                          "entry": dates[t], "entry_z": z, "hedge": h, "_eq": equity}
+            pos = target
+        ra = ca[dates[t + 1]] / ca[dates[t]] - 1
+        rb = cb[dates[t + 1]] / cb[dates[t]] - 1
+        if pos:
+            equity *= 1 + pos * (ra - h_entry * rb) / (1 + abs(h_entry))
+        eq_curve.append({"time": int(dt.datetime.strptime(dates[t + 1], "%Y-%m-%d").replace(tzinfo=dt.timezone.utc).timestamp()),
+                         "value": equity})
+    if open_t is not None:
+        open_t.update(exit=None, reason="open", return_pct=(equity / open_t.pop("_eq") - 1) * 100)
+        trades.append(open_t)
+    rets = [eq_curve[i]["value"] / eq_curve[i - 1]["value"] - 1 for i in range(1, len(eq_curve))]
+    peak, mdd = 1.0, 0.0
+    for p in eq_curve:
+        peak = max(peak, p["value"])
+        mdd = min(mdd, p["value"] / peak - 1)
+    closed = [t for t in trades if t["reason"] != "open"]
+    hold = [(dt.date.fromisoformat(t["exit"]) - dt.date.fromisoformat(t["entry"])).days for t in closed]
+    sd = _sd(rets) if len(rets) > 2 else 0.0
+    return {
+        "params": {"hedge_window": hedge_window, "z_window": z_window, "entry_z": entry_z, "exit_z": exit_z,
+                   "stop_z": stop_z, "fee_bps": fee_bps},
+        "stats": {"total_return_pct": (equity - 1) * 100, "max_drawdown_pct": mdd * 100,
+                  "sharpe": _mean(rets) / sd * math.sqrt(252) if sd > 0 else None, "trades": len(trades),
+                  "win_rate_pct": sum(1 for t in closed if t["return_pct"] > 0) / len(closed) * 100 if closed else None,
+                  "avg_holding_days": _mean(hold) if hold else None,
+                  "stops": sum(1 for t in closed if t["reason"] == "stop")},
+        "equity": eq_curve, "z": [{"time": int(dt.datetime.strptime(x["date"], "%Y-%m-%d").replace(tzinfo=dt.timezone.utc).timestamp()),
+                                   "value": x["z"]} for x in zs],
+        "hedge": [{"time": int(dt.datetime.strptime(x["date"], "%Y-%m-%d").replace(tzinfo=dt.timezone.utc).timestamp()),
+                   "value": x["hedge"]} for x in zs],
+        "trades": trades[-200:],
+        "note": "rolling estimates use only data up to each day (no look-ahead); hedge ratio fixed at entry",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Trade blotter → positions (average-cost, long & short)
+# ---------------------------------------------------------------------------
+def blotter_positions(trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """trades: [{time, symbol, side: buy|sell, qty>0, price, fee}] in time order.
+    Average-cost accounting; realized P&L when a trade reduces/flips a position (shorts supported)."""
+    pos: dict[str, dict[str, float]] = {}
+    realized_log = []
+    for t in sorted(trades, key=lambda x: (x.get("time") or "", x.get("id") or "")):
+        sym, qty, px = t["symbol"], float(t["qty"]), float(t["price"])
+        fee = float(t.get("fee") or 0)
+        signed = qty if t["side"] == "buy" else -qty
+        p = pos.setdefault(sym, {"qty": 0.0, "avg_cost": 0.0, "realized": 0.0, "fees": 0.0})
+        p["fees"] += fee
+        realized = 0.0
+        if p["qty"] == 0 or (p["qty"] > 0) == (signed > 0):  # open / add
+            new_qty = p["qty"] + signed
+            p["avg_cost"] = (p["avg_cost"] * abs(p["qty"]) + px * abs(signed)) / abs(new_qty)
+            p["qty"] = new_qty
+        else:  # reduce / close / flip
+            closing = min(abs(signed), abs(p["qty"]))
+            direction = 1 if p["qty"] > 0 else -1
+            realized = closing * (px - p["avg_cost"]) * direction
+            p["realized"] += realized
+            remaining = abs(signed) - closing
+            p["qty"] += math.copysign(closing, signed)
+            if remaining > 0:  # flipped
+                p["qty"] = math.copysign(remaining, signed)
+                p["avg_cost"] = px
+            elif p["qty"] == 0:
+                p["avg_cost"] = 0.0
+        realized_log.append({"id": t.get("id"), "time": t.get("time"), "symbol": sym, "realized": realized - fee})
+    total_realized = sum(p["realized"] - p["fees"] for p in pos.values())
+    return {"positions": pos, "realized_log": realized_log, "total_realized_net": total_realized}
