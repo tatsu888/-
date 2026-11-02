@@ -10,3 +10,4 @@ frontend/dist/
 data/
 *.log
 .DS_Store
+diagnose_report.json

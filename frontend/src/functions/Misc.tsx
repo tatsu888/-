@@ -263,6 +263,7 @@ export function SRC({ onSwitch }: { onSwitch: (p: string) => void }) {
           ))}
         </tbody>
       </table>
+      <Diagnostics />
       <p className="muted">
         TradingView / Yahoo は非公式エンドポイントです。利用規約を確認のうえ、個人の調査用途で使用してください (docs/DATA_SOURCES.md)。未ログインの TradingView は多くの取引所で遅延データ (D15 等) です。
       </p>
@@ -297,6 +298,60 @@ Panels without 📌 follow the loaded security; 📌 pins a panel to its securit
           </table>
         </div>
       ))}
+    </div>
+  );
+}
+
+function Diagnostics() {
+  const { toast } = useTerminal();
+  const [rep, setRep] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string>();
+  async function run() {
+    setBusy(true);
+    setErr(undefined);
+    try {
+      setRep(await api.get('/diagnose', { symbols: true }));
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function copy() {
+    const md = await fetch(api.url('/diagnose', { symbols: false, format: 'markdown' })).then((r) => r.text());
+    try {
+      await navigator.clipboard.writeText(md);
+      toast('diagnostics report copied — paste it to your AI assistant');
+    } catch {
+      toast('clipboard unavailable');
+    }
+  }
+  return (
+    <div className="box" style={{ margin: '8px 0' }}>
+      <h4>CONNECTIVITY DIAGNOSTICS（接続の自己診断）</h4>
+      <div className="toolbar">
+        <button className="tb green" onClick={run} disabled={busy}>{busy ? 'RUNNING… (~30s)' : 'RUN DIAGNOSTICS'}</button>
+        <button className="tb" onClick={copy}>COPY REPORT FOR AI</button>
+        <span className="muted">TradingView / Yahoo の各エンドポイントと、設定済みの全シンボルの実在を確認します</span>
+      </div>
+      <ErrorBox error={err} />
+      {rep && (
+        <table className="t">
+          <thead><tr><th className="l">STATUS</th><th className="l">CHECK</th><th>MS</th><th className="l">DETAIL</th><th className="l">HINT</th></tr></thead>
+          <tbody>
+            {rep.checks.map((c: any) => (
+              <tr key={c.check}>
+                <td className="l"><span className={`badge ${c.status.toLowerCase()}`}>{c.status}</span></td>
+                <td className="l amber">{c.check}</td>
+                <td className="muted">{c.ms}</td>
+                <td className="l" style={{ whiteSpace: 'normal' }}>{c.detail}</td>
+                <td className="l muted" style={{ whiteSpace: 'normal' }}>{c.hint}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

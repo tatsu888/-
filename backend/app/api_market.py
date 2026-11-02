@@ -217,3 +217,14 @@ async def store_put(key: str, body: dict[str, Any]):
     if key not in ALLOWED_KEYS or key in _PRIVATE:
         raise HTTPException(404, "unknown key")
     return {"key": key, "value": S.store.set(key, body.get("value"))}
+
+
+@router.get("/diagnose")
+async def diagnose(symbols: bool = True, format: str = "json"):
+    """Self-diagnosis of every upstream endpoint (needs internet). format=markdown for an AI-pasteable report."""
+    from .diagnose import run_diagnostics, to_markdown
+
+    rep = await run_diagnostics(symbols)
+    if format == "markdown":
+        return PlainTextResponse(to_markdown(rep))
+    return rep

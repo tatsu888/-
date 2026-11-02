@@ -52,9 +52,11 @@ class TradingViewProvider(Provider):
     name = "tradingview"
     description = "TradingView (unofficial websocket/scanner endpoints)"
 
-    def __init__(self, auth_token: str = "unauthorized_user_token") -> None:
+    def __init__(self, auth_token: str = "unauthorized_user_token", ws_url: str | None = None,
+                 http: httpx.AsyncClient | None = None) -> None:
         super().__init__()
         self.auth_token = auth_token
+        self.ws_url = ws_url or P.WS_URL
         self._ws: ClientConnection | None = None
         self._task: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
@@ -66,8 +68,8 @@ class TradingViewProvider(Provider):
         self._quote_events: dict[str, asyncio.Event] = {}
         self._bar_subs: dict[BarKey, str] = {}  # key -> chart session id
         self._cs_keys: dict[str, BarKey] = {}   # chart session id -> key
-        self._http = httpx.AsyncClient(timeout=15, headers={"Origin": P.ORIGIN, "Referer": P.ORIGIN + "/",
-                                                            "User-Agent": P.USER_AGENT})
+        self._http = http or httpx.AsyncClient(timeout=15, headers={"Origin": P.ORIGIN, "Referer": P.ORIGIN + "/",
+                                                                    "User-Agent": P.USER_AGENT})
 
     # ======================================================================
     # lifecycle
@@ -88,8 +90,7 @@ class TradingViewProvider(Provider):
         while True:
             self.status = "connecting"
             try:
-                async with connect(P.WS_URL, origin=P.ORIGIN, user_agent_header=P.USER_AGENT,
-                                   max_size=None, open_timeout=15) as ws:
+                async with self._connect() as ws:
                     self._ws = ws
                     self.status, self.status_detail = "connected", ""
                     backoff = 1.0
@@ -105,6 +106,11 @@ class TradingViewProvider(Provider):
             self._added.clear()
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60.0)
+
+    def _connect(self):
+        local = any(h in self.ws_url for h in ("://localhost", "://127.0.0.1"))
+        return connect(self.ws_url, origin=P.ORIGIN, user_agent_header=P.USER_AGENT, max_size=None,
+                       open_timeout=15, **({"proxy": None} if local else {}))
 
     async def _send(self, method: str, params: list[Any]) -> None:
         ws = self._ws
@@ -156,8 +162,8 @@ class TradingViewProvider(Provider):
             cur["error"] = "symbol error"
         cur.update(P.map_quote_values(data.get("v") or {}))
         ev = self._quote_events.get(sym)
-        if ev is not None and cur.get("last") is not None:
-            ev.set()
+        if ev is not None and (cur.get("last") is not None or cur.get("error")):
+            ev.set()  # unknown symbols answer with s="error": don't wait for the timeout
         if sym in self._quote_syms:
             await self.emit_quote(self._to_quote(sym))
 
@@ -254,8 +260,7 @@ class TradingViewProvider(Provider):
     async def _fetch_history(self, symbol: str, interval: str, bars: int) -> list[Bar]:
         cs = P.session_id("cs")
         rows: dict[int, list] = {}
-        async with connect(P.WS_URL, origin=P.ORIGIN, user_agent_header=P.USER_AGENT,
-                           max_size=None, open_timeout=15) as ws:
+        async with self._connect() as ws:
             async def send(m: str, p: list) -> None:
                 await ws.send(P.encode(m, p))
 
@@ -291,7 +296,7 @@ class TradingViewProvider(Provider):
             r.raise_for_status()
             data = r.json()
         except Exception as e:  # noqa: BLE001
-            raise ProviderError(f"symbol search failed: {e}") from e
+            raise ProviderError(f"symbol search failed: {http_detail(e)}") from e
         items = data.get("symbols", []) if isinstance(data, dict) else data
         out = []
         for it in items[:limit]:
@@ -317,8 +322,15 @@ class TradingViewProvider(Provider):
             r.raise_for_status()
             data = r.json()
         except Exception as e:  # noqa: BLE001
-            raise ProviderError(f"screener failed: {e}") from e
+            raise ProviderError(f"screener failed: {http_detail(e)}") from e
         return [parse_scan_row(row, self.name) for row in data.get("data", [])]
+
+
+def http_detail(e: Exception) -> str:
+    """Include the response body for HTTP errors — the scanner names the offending column there."""
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"HTTP {e.response.status_code}: {e.response.text[:300]}"
+    return f"{type(e).__name__}: {e}"
 
 
 def parse_scan_row(row: dict, source: str) -> Quote:

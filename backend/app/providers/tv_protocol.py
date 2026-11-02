@@ -19,7 +19,10 @@ import re
 import string
 from typing import Any
 
-WS_URL = "wss://data.tradingview.com/socket.io/websocket?from=chart%2F&type=chart"
+import os as _os
+
+# Overridable for tests / pro accounts (prodata.tradingview.com) via environment variables.
+WS_URL = _os.environ.get("TV_WS_URL", "wss://data.tradingview.com/socket.io/websocket?from=chart%2F&type=chart")
 ORIGIN = "https://www.tradingview.com"
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")

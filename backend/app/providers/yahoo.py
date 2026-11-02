@@ -93,10 +93,10 @@ class YahooProvider(Provider):
     name = "yahoo"
     description = "Yahoo Finance (unofficial, polling)"
 
-    def __init__(self, poll_sec: float = 5.0) -> None:
+    def __init__(self, poll_sec: float = 5.0, http: httpx.AsyncClient | None = None) -> None:
         super().__init__()
         self.poll_sec = poll_sec
-        self._http = httpx.AsyncClient(timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+        self._http = http or httpx.AsyncClient(timeout=15, headers={"User-Agent": "Mozilla/5.0"})
         self._quote_syms: set[str] = set()
         self._bar_subs: set[BarKey] = set()
         self._task: asyncio.Task | None = None

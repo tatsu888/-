@@ -53,10 +53,16 @@ def market_for(symbol: str) -> str:
     return _MARKETS.get(symbol.split(":", 1)[0].upper(), "global")
 
 
+def _detail(e: Exception) -> str:
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"HTTP {e.response.status_code}: {e.response.text[:300]}"
+    return f"{type(e).__name__}: {e}"
+
+
 class TVWeb:
-    def __init__(self) -> None:
-        self.http = httpx.AsyncClient(timeout=15, headers={"Origin": P.ORIGIN, "Referer": P.ORIGIN + "/",
-                                                           "User-Agent": P.USER_AGENT})
+    def __init__(self, http: httpx.AsyncClient | None = None) -> None:
+        self.http = http or httpx.AsyncClient(timeout=15, headers={"Origin": P.ORIGIN, "Referer": P.ORIGIN + "/",
+                                                                   "User-Agent": P.USER_AGENT})
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -73,7 +79,7 @@ class TVWeb:
             r.raise_for_status()
             data = r.json()
         except Exception as e:  # noqa: BLE001
-            raise ProviderError(f"tradingview news failed: {e}") from e
+            raise ProviderError(f"tradingview news failed: {_detail(e)}") from e
         items = data.get("items", []) if isinstance(data, dict) else data
         out = []
         for it in items[:limit]:
@@ -93,7 +99,7 @@ class TVWeb:
             r.raise_for_status()
             root = ET.fromstring(r.text)
         except Exception as e:  # noqa: BLE001
-            raise ProviderError(f"yahoo rss failed: {e}") from e
+            raise ProviderError(f"yahoo rss failed: {_detail(e)}") from e
         return parse_rss(root, limit)
 
     # ---- economic calendar ------------------------------------------------
@@ -105,7 +111,7 @@ class TVWeb:
             r.raise_for_status()
             data = r.json()
         except Exception as e:  # noqa: BLE001
-            raise ProviderError(f"economic calendar failed: {e}") from e
+            raise ProviderError(f"economic calendar failed: {_detail(e)}") from e
         rows = data.get("result", []) if isinstance(data, dict) else []
         out = [{
             "id": x.get("id"), "date": x.get("date"), "country": x.get("country"), "title": x.get("title"),
@@ -131,7 +137,7 @@ class TVWeb:
             r.raise_for_status()
             data = r.json()
         except Exception as e:  # noqa: BLE001
-            raise ProviderError(f"scanner failed: {e}") from e
+            raise ProviderError(f"scanner failed: {_detail(e)}") from e
         return [{"symbol": row.get("s"), **dict(zip(columns, row.get("d", [])))} for row in data.get("data", [])]
 
     # ---- many symbols, arbitrary columns (RV peers, earnings calendar) ------
@@ -155,7 +161,7 @@ class TVWeb:
                         out[row.get("s")] = dict(zip(cols, row.get("d", [])))
                     break
                 except Exception as e:  # noqa: BLE001
-                    errors.append(f"{market}: {e}")
+                    errors.append(f"{market}: {_detail(e)}")
         if not out and errors:
             raise ProviderError("; ".join(errors[:3]))
         return out
@@ -177,7 +183,7 @@ class TVWeb:
                         "fields": dict(zip(cols, data[0].get("d", [])))}
             except Exception as e:  # noqa: BLE001 - retry with fewer columns
                 last_err = e
-        raise ProviderError(f"fundamentals failed: {last_err}")
+        raise ProviderError(f"fundamentals failed: {_detail(last_err) if last_err else 'unknown'}")
 
 
 def parse_rss(root: ET.Element, limit: int = 50) -> list[dict[str, Any]]:
