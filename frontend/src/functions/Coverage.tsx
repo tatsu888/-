@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { useTerminal } from '../ctx';
 
+const fmtBytes = (n?: number) => (n == null ? '—' : n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.round(n / 1e3)} KB`);
 const dirCls = (d?: string) => (d === 'LONG' ? 'up' : d === 'SHORT' ? 'down' : 'muted');
 
 export function COV() {
@@ -22,6 +23,8 @@ export function COV() {
   const [fplan, setFplan] = useState<any>(null);
   const [report, setReport] = useState<any>(null);
   const [cfg, setCfg] = useState<any>(null);
+  const [moveTo, setMoveTo] = useState('');
+  const [movePlan, setMovePlan] = useState<any>(null);
   const [opt, setOpt] = useState({ create_pages: true, update_master: true, add_properties: false, days_ahead: 60 });
   const d = r.data;
   const items: any[] = d?.items || [];
@@ -48,6 +51,7 @@ export function COV() {
           <input type="file" accept=".xlsx" style={{ display: 'none' }} onChange={(ev) => { const f = ev.target.files?.[0]; if (!f) return; const fd = new FormData(); fd.append('file', f); act('JPX', () => fetch('/api/earnings/jpx/import', { method: 'POST', body: fd }).then(async (res) => { if (!res.ok) throw new Error((await res.json()).detail); return res.json(); }), (x) => toast(`JPX: ${x.records} 件取り込み、変更 ${x.n_changes} 件`)); ev.target.value = ''; }} />
         </label>
         <button className={`tb ${pane === 'LOG' ? 'on' : ''}`} onClick={() => setPane(pane === 'LOG' ? '' : 'LOG')}>決算ログ</button>
+        <a className="tb" href="/api/earnings/calendar.ics?days=180" download="earnings.ics" title="決算カレンダーを .ics で保存（Outlook / Google カレンダーに取り込み）">📅 .ics</a>
         <button className={`tb ${pane === 'FOLDERS' ? 'on' : ''}`} onClick={() => setPane(pane === 'FOLDERS' ? '' : 'FOLDERS')}>フォルダ…</button>
         <button className={`tb ${pane === 'SETTINGS' ? 'on' : ''}`} onClick={() => { setCfg({ ...(d?.config || {}), db_id: d?.db_id || '', micro_page: d?.micro_page || '' }); setPane(pane === 'SETTINGS' ? '' : 'SETTINGS'); }}>SETTINGS</button>
         <input className="inp" style={{ width: 150 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="ticker / 社名 / サブグループ" />
@@ -69,6 +73,20 @@ export function COV() {
             <div><button className="tb on" onClick={() => act('SAVE', () => api.put('/coverage/config', cfg), () => setPane(''))}>SAVE</button> <span className="muted">トークンは画面では扱わない（.env の NOTION_TOKEN）</span></div>
             <div className="muted" style={{ marginTop: 6 }}>決算・四半期はターミナルの決算カレンダーで管理（Notion は正本ではない）。<button className="tb mini" onClick={() => setPane('NOTION')}>任意: Notion へ書き出す（非推奨）</button></div>
           </div>
+          <h4>ルートごと移す（OneDrive など）— コピー → 全ファイルを確認 → 切り替え。元のフォルダは消さない</h4>
+          <div className="toolbar">
+            <input className="inp" style={{ width: 360 }} value={moveTo} onChange={(e) => { setMoveTo(e.target.value); setMovePlan(null); }} placeholder="C:\Users\you\OneDrive\Coverage" />
+            <button className="tb" disabled={!moveTo.trim()} onClick={() => act('PREVIEW', () => api.post('/coverage/move_root', { to: moveTo, apply: false }), setMovePlan)}>PREVIEW</button>
+            <button className="tb on" disabled={!movePlan || movePlan.apply || movePlan.n_conflicts > 0} onClick={() => { if (confirm(`${movePlan.files} 件（${fmtBytes(movePlan.bytes)}）を ${movePlan.to} にコピーして、ルートを切り替えます。元のフォルダは残します。よろしいですか？`)) act('MOVE', () => api.post('/coverage/move_root', { to: moveTo, apply: true }), (x) => { setMovePlan(x); toast(x.message); if (x.switched) setCfg({ ...cfg, root: x.root }); }); }}>APPLY</button>
+          </div>
+          {movePlan && (
+            <div className="pad" style={{ fontSize: 11 }}>
+              <div>{movePlan.from} → <span className="amber">{movePlan.to}</span></div>
+              <div>ファイル {movePlan.files} 件 · {fmtBytes(movePlan.bytes)} · 最上位 {movePlan.n_top} 件（{(movePlan.top || []).slice(0, 6).join('、')}{movePlan.n_top > 6 ? '…' : ''}）{movePlan.already ? ` · コピー済み ${movePlan.already}` : ''}</div>
+              {movePlan.n_conflicts > 0 && <div className="down">移動先に内容の違う同名ファイル {movePlan.n_conflicts} 件: {movePlan.conflicts.slice(0, 5).join('、')}</div>}
+              {movePlan.apply && <div className={movePlan.switched ? 'up' : 'down'}>{movePlan.message}{movePlan.n_errors ? ` — ${movePlan.errors.slice(0, 3).join(' / ')}` : ''}</div>}
+            </div>
+          )}
         </div>
       )}
       {pane === 'NOTION' && (
@@ -129,13 +147,13 @@ export function COV() {
       <div className="trin-split">
         <div style={{ flex: 3, minWidth: 560, overflowX: 'auto' }}>
           <table className="t nowrap">
-            <thead><tr><th className="l">TICKER</th><th className="l">ACTIONS</th><th className="l">社名</th><th>次回決算</th><th className="l">四半期</th><th>決算月</th><th>Excel</th><th>AUTO</th><th className="l">サブグループ</th></tr></thead>
+            <thead><tr><th className="l">TICKER</th><th className="l">ACTIONS</th><th className="l">社名</th><th>次回決算</th><th className="l">四半期</th><th>決算月</th><th title="決算時の値動き（対市場の平均絶対値、実データのみ）">決算反応</th><th>Excel</th><th>AUTO</th><th className="l">サブグループ</th></tr></thead>
             <tbody>
               {shown.map((x) => {
                 const hdr = group === 'GICS' && x.gics_group !== lastGroup ? (lastGroup = x.gics_group || '', true) : false;
                 const e = x.earnings || {};
                 return [
-                  hdr ? <tr key={'g' + x.gics_group}><td colSpan={9} className="l yellow" style={{ background: '#111' }}>{x.gics_group || '（GICS 未設定）'}</td></tr> : null,
+                  hdr ? <tr key={'g' + x.gics_group}><td colSpan={10} className="l yellow" style={{ background: '#111' }}>{x.gics_group || '（GICS 未設定）'}</td></tr> : null,
                   <tr key={x.ticker}>
                     <td className="l amber" style={{ cursor: 'pointer' }} title="個別銘柄ページ（STK）" onClick={() => { setSecurity(x.symbol); run('STK', x.symbol); }}>{x.ticker}</td>
                     <td className="l" style={{ whiteSpace: 'nowrap' }}>
@@ -152,6 +170,7 @@ export function COV() {
                       {(e.fye_month ?? x.fye_month) ? `${e.fye_month ?? x.fye_month}月${!e.fye_month && x.fye_uncertain ? '?' : ''}` : ''}
                       {x.fye_month && e.fye_month && x.fye_month !== e.fye_month ? <span className="down" style={{ fontSize: 10 }}> ≠N</span> : null}
                     </td>
+                    <td className="muted" title={e.reaction ? `過去 ${e.reaction.n} 回（${e.reaction.basis}）: 中央値 ±${(e.reaction.median_abs * 100).toFixed(1)}%、上昇 ${e.reaction.up} / 下落 ${e.reaction.down}${e.reaction.drift_follow != null ? `、その後 ${e.reaction.drift_follow >= 0 ? '継続' : '反転'}` : ''}（${e.reaction.provider}）` : '未計算（AUTO が実データで計算）'}>{e.reaction ? `±${(e.reaction.avg_abs * 100).toFixed(1)}%` : ''}</td>
                     <td>{x.excel_files || ''}</td>
                     <td className={dirCls(x.auto?.direction)}>{x.auto ? `${x.auto.direction[0]}${x.auto.conviction}` : ''}</td>
                     <td className="l muted">{x.gics_sub || ''}</td>

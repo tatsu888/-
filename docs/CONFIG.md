@@ -7,7 +7,7 @@
 | `TERMINAL_TRINITY_FIRST_DELAY` | `20` | 起動から初回の自動実行までの秒数 |
 | `NOTION_TOKEN` | （空） | COV が Notion API を使うためのインテグレーション・トークン。**秘密情報。コミットしないこと**（[COVERAGE.md](COVERAGE.md)） |
 | `NOTION_COVERAGE_DB` / `NOTION_MICRO_PAGE` | （空） | 銘柄マスタのデータベース ID と ATLAS / MICRO のページ ID（COV の SETTINGS でも可） |
-| `COVERAGE_DIR` | `<最初の Excel フォルダ>/Coverage` | カバレッジ・フォルダのルート（OneDrive に移したらここを変える） |
+| `COVERAGE_DIR` | `<最初の Excel フォルダ>/Coverage` | カバレッジ・フォルダのルート。決算カレンダー（`_terminal/earnings/calendar.json`）もここに入る。OneDrive に移すときは COV の「ルートごと移す」を使う（SETTINGS のルートが `.env` より優先） |
 | `X_BEARER_TOKEN` | （空） | X API v2 の Bearer Token（`TRND` の X 分析。counts/search は有料プラン）。**秘密情報。コミットしないこと** |
 | `TV_AUTH_TOKEN` | `unauthorized_user_token` | TradingView の auth token（ログインしていればリアルタイム）。**秘密情報。コミットしないこと** |
 | `YAHOO_POLL_SEC` | `5` | Yahoo のポーリング間隔（秒） |

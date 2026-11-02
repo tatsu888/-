@@ -5,6 +5,7 @@ Every write to Notion or to the disk is a separate explicit call with ``apply``;
 returns the plan (dry run)."""
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import os
@@ -312,6 +313,108 @@ class FolderReq(BaseModel):
     apply: bool = False
     layout: str | None = None
     tickers: list[str] | None = None
+
+
+# ---- move the whole root (e.g. to OneDrive) -----------------------------------------------------------
+class MoveRootReq(BaseModel):
+    to: str
+    apply: bool = False
+
+
+LOCK_FILE = re.compile(r"^~\$|^\.~lock\.|\.tmp$", re.I)      # Office / LibreOffice lock files, temp files
+
+
+def _move_plan(src: Path, dst: Path) -> dict[str, Any]:
+    files: list[tuple[Path, int]] = []
+    same: set[str] = set()
+    clash: list[str] = []
+    for p in sorted(src.rglob("*")):
+        if not p.is_file() or LOCK_FILE.search(p.name):
+            continue
+        rel, st = p.relative_to(src), p.stat()
+        files.append((rel, st.st_size))
+        t = dst / rel
+        if t.exists():
+            ts = t.stat()
+            if ts.st_size == st.st_size and abs(ts.st_mtime - st.st_mtime) < 2:
+                same.add(rel.as_posix())          # an earlier, interrupted run already copied it
+            else:
+                clash.append(rel.as_posix())
+    top = sorted({r.parts[0] for r, _ in files})
+    return {"from": str(src), "to": str(dst), "files": len(files), "bytes": sum(n for _, n in files), "top": top[:200],
+            "n_top": len(top), "already": len(same), "conflicts": clash[:100], "n_conflicts": len(clash),
+            "_files": files, "_same": same}
+
+
+def _copy_verify(src: Path, dst: Path, files: list[tuple[Path, int]], same: set[str]) -> dict[str, Any]:
+    errors = []
+    for rel, _ in files:
+        if rel.as_posix() in same:
+            continue
+        try:
+            (dst / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src / rel, dst / rel)
+        except OSError as e:
+            errors.append(f"{rel.as_posix()}: {e}")
+    bad = [rel.as_posix() for rel, _ in files
+           if not (dst / rel).is_file() or (src / rel).is_file() and (dst / rel).stat().st_size != (src / rel).stat().st_size]
+    return {"errors": errors[:50], "n_errors": len(errors), "mismatch": bad[:50], "n_mismatch": len(bad)}
+
+
+@router.post("/move_root")
+async def move_root(req: MoveRootReq):
+    """Move the whole coverage root — stock folders, Excel models, reports, quarter folders and the earnings calendar
+    (_terminal) — to a new place such as OneDrive: COPY → verify every file → switch the root. The old folder is
+    never deleted (check the new place, then delete it by hand). apply=false returns the plan only."""
+    cov = state()
+    src = root_dir(cov).resolve()
+    raw = req.to.strip().strip('"')
+    if not raw:
+        raise HTTPException(400, "移動先を入力")
+    dst = Path(raw).expanduser()
+    if not dst.is_absolute():
+        raise HTTPException(400, "移動先は絶対パスで（例 C:\\Users\\<you>\\OneDrive\\Coverage）")
+    dst = dst.resolve()
+    if dst == src or src in dst.parents or dst in src.parents:
+        raise HTTPException(400, "移動先が今のルートと同じ、またはその内側／外側")
+    if not src.is_dir():
+        raise HTTPException(400, f"今のルートがない: {src}")
+    plan = await asyncio.to_thread(_move_plan, src, dst)
+    public = {k: v for k, v in plan.items() if not k.startswith("_")}
+    if not req.apply:
+        return {"apply": False, **public}
+    if plan["n_conflicts"]:
+        raise HTTPException(409, f"移動先に内容の違う同名ファイルが {plan['n_conflicts']} 件ある（例 {plan['conflicts'][0]}）。"
+                                 "別の場所を指定するか、移動先を整理してから")
+    res = await asyncio.to_thread(_copy_verify, src, dst, plan["_files"], plan["_same"])
+    if res["n_errors"] or res["n_mismatch"]:
+        return {"apply": True, "switched": False, **public, **res,
+                "message": "コピーできないファイルがあったため、ルートは切り替えていない（Excel で開いているファイルを閉じて再実行。"
+                           "コピー済みのものは次回スキップされる）"}
+    before = {f["id"]: (Path(f["root"]) / f["path"]).resolve() for f in S.excel.list_files()}
+    cov["config"]["root"] = str(dst)
+    save(cov)
+    idx = next((i for i, r in enumerate(S.excel.roots) if r.resolve() == src), None)
+    if idx is not None:                       # the old root joined the Excel library as the coverage root:
+        S.excel.roots[idx] = dst              # take its slot, so file ids (and links) stay the same
+    else:
+        ensure_excel_root(dst)
+    # manual Excel links → the same files (moved ones in the new root), whatever their ids are now
+    after = {(Path(f["root"]) / f["path"]).resolve(): f["id"] for f in S.excel.list_files()}
+    links, n = dict(S.store.get("excel_links") or {}), 0
+    for sym, ids in links.items():
+        new_ids = []
+        for fid in ids:
+            p = before.get(fid)
+            nid = after.get((dst / p.relative_to(src)).resolve() if src in p.parents else p) if p else None
+            new_ids.append(nid or fid)
+            n += bool(nid and nid != fid)
+        links[sym] = new_ids
+    if n:
+        S.store.set("excel_links", links)
+    return {"apply": True, "switched": True, **public, **res, "root": str(dst), "old_root_kept": str(src), "links_remapped": n,
+            "message": f"{plan['files']} 件をコピーして確認し、ルートを {dst} に切り替えた。元のフォルダ {src} は残してある"
+                       "（確認後に手で削除。削除するまでは XLS に同じファイルが見えることがある）"}
 
 
 @router.post("/folders")

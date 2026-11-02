@@ -161,6 +161,11 @@ async def run_once(source: str | None = None) -> dict[str, Any]:
                         await S.hub.broadcast({"type": "earnings", "changes": er["changes"][:20]})
             except Exception as e:  # noqa: BLE001
                 errors["earnings calendar"] = str(e)
+            try:  # 決算時の株価反応: past announcement dates detected from volume + typical move (real data only)
+                from .api_earnings import reactions_all
+                await reactions_all(series, (await S.provider(source)).name, source)
+            except Exception as e:  # noqa: BLE001
+                errors["earnings reactions"] = str(e)
             try:  # FLOW: daily ETF share counts → real creations / redemptions accumulate over time
                 from .api_factors import flows_record
                 await flows_record()

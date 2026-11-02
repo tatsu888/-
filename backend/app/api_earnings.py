@@ -1,15 +1,22 @@
-"""Earnings / quarter system API (independent of Notion). Data: <data>/earnings/calendar.json."""
+"""Earnings / quarter system API (independent of Notion).
+
+Data: <coverage root>/_terminal/earnings/calendar.json — inside the coverage root, so the calendar (dates, quarter
+notes, checklists, log) moves to OneDrive together with the stock folders. Quarter notes are also kept in sync,
+both ways, with <stock folder>/quarters/<FY…>/notes.md.
+"""
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import io
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from . import earnings as E
@@ -18,17 +25,46 @@ from .state import DATA_DIR, S
 router = APIRouter(prefix="/api/earnings")
 JPX_INDEX = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
 TV_COLS = ["earnings_release_next_date", "earnings_release_date"]
+LEGACY_PATH = DATA_DIR / "earnings" / "calendar.json"     # first version kept it in the data dir (not synced)
+LOCATION = DATA_DIR / "earnings" / "location.json"        # machine-local: where the calendar was used last
 
 
 def cal_path() -> Path:
-    p = DATA_DIR / "earnings"
-    p.mkdir(parents=True, exist_ok=True)
-    return p / "calendar.json"
+    from .api_coverage import root_dir
+    return root_dir() / "_terminal" / "earnings" / "calendar.json"
+
+
+def _last_location() -> Path | None:
+    try:
+        return Path(json.loads(LOCATION.read_text(encoding="utf-8"))["path"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _remember(p: Path) -> None:
+    if _last_location() != p:
+        LOCATION.parent.mkdir(parents=True, exist_ok=True)
+        LOCATION.write_text(json.dumps({"path": str(p)}, ensure_ascii=False), encoding="utf-8")
+
+
+def _migrate(dst: Path) -> str | None:
+    """A coverage root without a calendar: copy it from the old data dir, or from the root used last (e.g. the root
+    was changed in SETTINGS without moving the folders). The old data-dir file is kept as a backup."""
+    for src in (LEGACY_PATH, _last_location()):
+        if src and src != dst and src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            if src == LEGACY_PATH:
+                src.rename(src.with_name(f"calendar.moved-{dt.datetime.now():%Y%m%d-%H%M%S}.json"))
+            return str(src)
+    return None
 
 
 def load() -> dict[str, Any]:
+    p = cal_path()
+    moved = None if p.exists() else _migrate(p)
     try:
-        c = json.loads(cal_path().read_text(encoding="utf-8"))
+        c = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         c = {}
     c.setdefault("config", {"convention": "end", "jpx_index": JPX_INDEX, "auto": True, "last_refresh": None})
@@ -36,13 +72,127 @@ def load() -> dict[str, Any]:
         c.setdefault(k, {})
     c.setdefault("jpx", {"records": [], "fetched": None, "files": []})
     c.setdefault("log", [])
+    if moved:
+        c["log"].append({"at": _now(), "ticker": None, "qid": None, "what": "保存場所", "from": moved, "to": str(p), "source": "移行"})
+        save(c)
     return c
 
 
 def save(c: dict[str, Any]) -> None:
-    tmp = cal_path().with_suffix(".tmp")
+    p = cal_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(cal_path())
+    tmp.replace(p)
+    _remember(p)
+
+
+# ---- quarter notes ⇄ <quarter folder>/notes.md ------------------------------------------------------
+NOTES_MARK = "<!-- ここから下がメモ（ターミナルの四半期ページと同期します。この線より上はターミナルが書き換えます） -->"
+_MARK_RE = re.compile(r"<!--\s*ここから下がメモ.*?-->", re.S)
+
+
+def _clean(s: str | None) -> str:
+    return "\n".join(x.rstrip() for x in (s or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")).strip()
+
+
+def _digest(s: str | None) -> str:
+    return hashlib.sha1(_clean(s).encode("utf-8")).hexdigest()[:16]
+
+
+def notes_md(it: dict[str, Any], q: dict[str, Any]) -> str:
+    e = q.get("earnings") or {}
+    done = [k for k, v in (q.get("checklist") or {}).items() if v]
+    head = [f"# {it['ticker']} {it.get('name') or ''} — {q['label']}（{q['label_ja']}）", "",
+            f"- 期間: {q['period_start']} 〜 {q['period_end']}",
+            f"- 決算発表: {e.get('date') or '—'}（{e.get('status') or '—'}・{e.get('source') or '—'}）",
+            f"- 状態: {q.get('state') or '—'}"]
+    if done:
+        head.append(f"- チェック済み: {'、'.join(done)}")
+    body = _clean(q.get("notes"))
+    return "\n".join(head) + f"\n\n{NOTES_MARK}\n\n" + (body + "\n" if body else "")
+
+
+_OLD_HEAD = re.compile(r"\A# [^\n]*\n+(?:- (?:期間|決算発表|状態|チェック済み): [^\n]*\n)+")
+
+
+def notes_from_md(text: str) -> str:
+    """The note part of notes.md: below the marker. A file without the marker (hand-written, or written by the
+    first version) is all note, minus a header that the terminal generated itself (title + 期間/決算発表 lines)."""
+    m = _MARK_RE.search(text)
+    if m:
+        return _clean(text[m.end():])
+    return _clean(_OLD_HEAD.sub("", text.replace("\r\n", "\n"), count=1))
+
+
+def quarter_dir(stock: Path, qid: str) -> Path:
+    return stock / "quarters" / qid.replace("-", "_")
+
+
+def sync_notes(it: dict[str, Any], q: dict[str, Any], folder: Path) -> str | None:
+    """Two-way sync of the quarter page notes with <folder>/notes.md: the side that changed since the last sync
+    wins; if both changed, the terminal's text is kept and the file's text is saved as notes.conflict-<time>.md
+    (nothing is ever lost). The header above the marker is rewritten by the terminal (dates, status)."""
+    if not folder.is_dir():
+        return None
+    f = folder / "notes.md"
+    term = _clean(q.get("notes"))
+    base = (q.get("notes_sync") or {}).get("digest")
+    action, old = None, None
+    if f.exists():
+        try:
+            old = f.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
+        except (OSError, UnicodeDecodeError):
+            return "読めない"
+        fnote = notes_from_md(old)
+        if fnote != term:
+            if base is None:    # first sync of a file that already existed: the non-empty side wins
+                fchg, tchg = bool(fnote), bool(term)
+            else:
+                fchg, tchg = _digest(fnote) != base, _digest(term) != base
+            if fchg and not tchg:
+                q["notes"], action = fnote, "ファイルから取り込み"
+            elif tchg and not fchg:
+                action = "ファイルへ書き出し"
+            else:
+                name = f"notes.conflict-{dt.datetime.now():%Y%m%d-%H%M%S}.md"
+                (folder / name).write_text(old, encoding="utf-8")
+                q["notes_conflict"], action = name, f"競合（ファイル側を {name} に保存）"
+    new = notes_md(it, q)
+    if old != new:
+        f.write_text(new, encoding="utf-8")
+        action = action or ("作成" if old is None else "見出しを更新")
+    d = _digest(q.get("notes"))
+    if action or base != d:
+        q["notes_sync"] = {"digest": d, "at": _now()}
+        action = action or "同期"
+    return action
+
+
+QUIET = ("見出しを更新", "作成", "同期")     # sync results that are not worth a log line
+
+
+def sync_company(c: dict[str, Any], t: str, it: dict[str, Any] | None, stock: Path | None) -> tuple[bool, list[dict[str, Any]]]:
+    """Sync every quarter of one company that has a quarter folder → (calendar changed?, log rows)."""
+    if not it or not stock:
+        return False, []
+    changed, rows = False, []
+    for q in (c["quarters"].get(t) or {}).values():
+        a = sync_notes(it, q, quarter_dir(stock, q["id"]))
+        if a:
+            changed = True
+            if a not in QUIET:
+                rows.append({"ticker": t, "qid": q["id"], "what": "メモ", "from": "", "to": a, "source": "notes.md"})
+    return changed, rows
+
+
+def _cov_context(t: str) -> tuple[dict[str, Any] | None, Path | None]:
+    """(coverage item, existing stock folder) of a ticker."""
+    from .api_coverage import markers, root_dir, state
+
+    cov = state()
+    it = next((x for x in cov["items"] if x["ticker"] == t), None)
+    return it, (markers(root_dir(cov)).get(t) if it else None)
 
 
 def _now() -> str:
@@ -191,6 +341,7 @@ async def refresh(c: dict[str, Any], use_jpx: bool = True, use_tv: bool = True, 
                     last = max(x.get("run") or 0 for x in tv_old)
                     current += [x for x in tv_old if (x.get("run") or 0) == last]
             current = current or [x for x in hist if x["status"] in ("確定", "発表済")]
+            current += [x for x in hist if x["status"] == "検出" and x not in current]   # market evidence does not expire
             q["earnings"] = E.resolve(q, current, prev, E.typical_lag(ordered, q["q"]), today)
             q["state"] = E.quarter_state(q, today)
             moved = (before.get("date"), before.get("status")) != (q["earnings"].get("date"), q["earnings"].get("status"))
@@ -198,6 +349,11 @@ async def refresh(c: dict[str, Any], use_jpx: bool = True, use_tv: bool = True, 
             if before and moved and not (before.get("status") == "推定" and q["earnings"].get("status") == "推定"):
                 changes.append({"ticker": t, "qid": q["id"], "what": "決算日", "from": f"{before.get('date')} {before.get('status')}",
                                 "to": f"{q['earnings']['date']} {q['earnings']['status']}", "source": q["earnings"].get("source")})
+    # quarter folders: refresh the notes.md headers (dates / status) and pick up notes edited in the files
+    from .api_coverage import markers, root_dir
+    mk = markers(root_dir())
+    for it in items:
+        changes += sync_company(c, it["ticker"], it, mk.get(it["ticker"]))[1]
     c["log"] = (c["log"] + [{**x, "at": fetched} for x in changes])[-1000:]
     c["config"]["last_refresh"] = fetched
     save(c)
@@ -229,7 +385,127 @@ def summary(ticker: str, c: dict[str, Any] | None = None) -> dict[str, Any] | No
             "next_source": v["next"]["source"] if v["next"] else None, "days": v["next"]["days"] if v["next"] else None,
             "next_period_end": v["next"]["period_end"] if v["next"] else None,
             "last": v["last"]["date"] if v["last"] else None, "last_title": v["last"]["label"] if v["last"] else None,
-            "fye_month": v["company"].get("fye_month"), "fye_source": v["company"].get("fye_source")}
+            "fye_month": v["company"].get("fye_month"), "fye_source": v["company"].get("fye_source"),
+            "reaction": v["company"].get("reaction")}
+
+
+# ---- 決算時の株価反応 (earnings_reaction.py) ---------------------------------------------------------
+REAL = ("tradingview", "yahoo")      # detected dates / stored statistics only ever come from real market data
+
+
+def market_symbol(symbol: str) -> str:
+    return "TVC:TOPIX" if symbol.upper().startswith(("TSE:", "OSE:")) else "SP:SPX"
+
+
+def reactions_from_bars(c: dict[str, Any], t: str, bars: list[dict[str, Any]], market_bars: list[dict[str, Any]] | None,
+                        provider: str, today: dt.date | None = None) -> dict[str, Any]:
+    """Reaction of every reported quarter. With real market data, an estimated (推定) past date is replaced by the
+    date detected from the volume spike (status 検出, logged); with SIM data nothing is written."""
+    from . import earnings_reaction as R
+
+    today = today or dt.date.today()
+    ds, cl, vo = R.daily(bars)
+    mkt = None
+    if market_bars:
+        md, mc, _ = R.daily(market_bars)
+        mkt = dict(zip(md, mc))
+    real = provider in REAL
+    rows: list[dict[str, Any]] = []
+    detected = 0
+    for q in sorted((c["quarters"].get(t) or {}).values(), key=lambda x: x["period_end"]):
+        e = q.get("earnings") or {}
+        if not ds or not e.get("date") or not (ds[0] < e["date"] < today.isoformat()):
+            continue
+        st = e.get("status")
+        row: dict[str, Any] = {"id": q["id"], "label": q["label"], "label_ja": q["label_ja"], "announce": e["date"], "status": st}
+        if st == "検出" and (q.get("detected") or {}).get("reaction_day") in ds:
+            i = ds.index(q["detected"]["reaction_day"])
+            row.update(kind="検出", timing="検出（引け後と仮定）")
+        elif st in E.KNOWN:
+            hit = R.reaction_at_known(ds, vo, e["date"])
+            if not hit:
+                continue
+            i, timing = hit
+            row.update(kind="既知", timing=timing)
+        else:                                   # 推定 → look for the volume spike
+            ne = (dt.date.fromisoformat(q["period_end"]) + dt.timedelta(days=7)).isoformat()
+            hit = R.detect(ds, vo, e["date"], ne)
+            if not hit:
+                rows.append({**row, "kind": "検出できず"})
+                continue
+            i = hit["index"]
+            row.update(kind="検出", timing="検出（引け後と仮定）", announce=hit["announce"])
+            if real:
+                src = f"出来高の急増（反応日 {hit['reaction_day']}、{hit['vol_ratio']:.1f} 倍、引け後と仮定・{provider}）"
+                _merge_candidates(q, [{"date": hit["announce"], "status": "検出", "source": src, "fetched": _now()}], int(c.get("runs") or 0))
+                q["detected"] = {"reaction_day": hit["reaction_day"], "announce": hit["announce"],
+                                 "vol_ratio": round(hit["vol_ratio"], 2), "provider": provider, "at": _now()}
+                c["log"].append({"at": _now(), "ticker": t, "qid": q["id"], "what": "決算日", "from": f"{e['date']} 推定",
+                                 "to": f"{hit['announce']} 検出", "source": src})
+                q["earnings"] = {"date": hit["announce"], "status": "検出", "source": src}
+                q["state"] = E.quarter_state(q, today)
+                detected += 1
+        m = R.metrics(ds, cl, vo, i, mkt)
+        if m:
+            rows.append({**row, **m})
+    summ = R.summarize(rows)
+    changed = detected > 0
+    if real and summ.get("n"):                # the typical earnings move, shown in COV
+        old = {k: v for k, v in ((c["companies"].get(t) or {}).get("reaction") or {}).items() if k != "at"}
+        new = {**summ, "provider": provider}
+        if old != new:
+            c["companies"].setdefault(t, {})["reaction"] = {**new, "at": _now()}
+            changed = True
+    return {"ticker": t, "rows": rows, "summary": summ, "provider": provider, "real": real, "detected_now": detected,
+            "changed": changed, "market": bool(mkt)}
+
+
+async def _market_bars(symbol: str, source: str | None, cache: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    ms = market_symbol(symbol)
+    if ms not in cache:
+        try:
+            cache[ms] = await S.history(ms, "1D", 800, source)
+        except HTTPException:
+            cache[ms] = []
+    return cache[ms]
+
+
+async def reactions_all(series: dict[str, list[dict[str, Any]]], provider: str, source: str | None = None) -> dict[str, Any]:
+    """AUTO: detection of past announcement dates and the typical earnings move for the whole coverage (from the
+    price histories AUTO already loaded). Real market data only."""
+    if provider not in REAL:
+        return {"skipped": f"{provider}: 検出と統計は実データのときだけ保存"}
+    c = load()
+    cache: dict[str, list[dict[str, Any]]] = {}
+    n, changed = 0, False
+    for it in _coverage_items():
+        bars = series.get(it["symbol"])
+        if bars and it["ticker"] in c["quarters"]:
+            r = reactions_from_bars(c, it["ticker"], bars, await _market_bars(it["symbol"], source, cache), provider)
+            n, changed = n + r["detected_now"], changed or r["changed"]
+    if changed:
+        save(c)
+    if n:   # estimates of later quarters (前年同期 + 364, typical lag) are re-based on the detected dates
+        await refresh(load(), use_jpx=False, use_tv=False)
+    return {"detected": n}
+
+
+def _ics_text(s: str) -> str:
+    return s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def _ics_fold(line: str) -> str:
+    """RFC 5545 line folding at 75 octets (never inside a UTF-8 character)."""
+    out, cur, n = [], "", 0
+    for ch in line:
+        b = len(ch.encode("utf-8"))
+        if n + b > 75:
+            out.append(cur)
+            cur, n = " " + ch, 1 + b
+        else:
+            cur, n = cur + ch, n + b
+    out.append(cur)
+    return "\r\n".join(out)
 
 
 # ---- endpoints ----------------------------------------------------------------------------------
@@ -287,6 +563,29 @@ async def calendar_ep(days: int = 90):
     return {"rows": rows, "last_refresh": c["config"].get("last_refresh"), "jpx_fetched": c["jpx"].get("fetched")}
 
 
+@router.get("/calendar.ics")
+async def calendar_ics(days: int = 180, estimates: bool = True):
+    """The earnings calendar as an iCalendar file (Outlook / Google カレンダー: import, or subscribe to this URL on
+    the same PC). All-day events; the status (確定・予定・推定…) is in the title."""
+    cal = await calendar_ep(days)
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//analyst-terminal//earnings//JA", "CALSCALE:GREGORIAN",
+             "METHOD:PUBLISH", "X-WR-CALNAME:決算カレンダー（ターミナル）"]
+    for r in cal["rows"]:
+        if r["status"] == "推定" and not estimates:
+            continue
+        d = dt.date.fromisoformat(r["date"])
+        lines += ["BEGIN:VEVENT", f"UID:{r['ticker']}-{r['id']}@analyst-terminal", f"DTSTAMP:{stamp}",
+                  f"DTSTART;VALUE=DATE:{d:%Y%m%d}", f"DTEND;VALUE=DATE:{d + dt.timedelta(days=1):%Y%m%d}",
+                  "SUMMARY:" + _ics_text(f"決算 {r['ticker']} {r.get('name') or ''} {r['label']}（{r['status']}）"),
+                  "DESCRIPTION:" + _ics_text(f"{r['label_ja']} / 出所: {r.get('source') or ''}"),
+                  "TRANSP:TRANSPARENT", "END:VEVENT"]
+    lines.append("END:VCALENDAR")
+    body = "\r\n".join(_ics_fold(x) for x in lines) + "\r\n"
+    return Response(body, media_type="text/calendar; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="earnings.ics"'})
+
+
 @router.get("/log")
 async def log_ep(limit: int = 200):
     return {"log": load()["log"][-limit:][::-1]}
@@ -316,7 +615,31 @@ async def put_config(body: dict[str, Any]):
 
 @router.get("/{ticker}")
 async def company_ep(ticker: str):
-    return company_view(load(), ticker.split(":")[-1].upper())
+    t = ticker.split(":")[-1].upper()
+    c = load()
+    company_view(c, t)                     # sets each quarter's state (used in the notes.md header)
+    changed, rows = sync_company(c, t, *_cov_context(t))
+    if changed:
+        c["log"] = (c["log"] + [{**x, "at": _now()} for x in rows])[-1000:]
+        save(c)
+    return company_view(c, t)
+
+
+@router.get("/{ticker}/reactions")
+async def reactions_ep(ticker: str, source: str | None = None):
+    """決算時の株価反応 of one company (price history of the stock and of the market)."""
+    t = ticker.split(":")[-1].upper()
+    it, _ = _cov_context(t)
+    symbol = it["symbol"] if it else (ticker.upper() if ":" in ticker else f"TSE:{t}")
+    provider = (await S.provider(source)).name
+    bars = await S.history(symbol, "1D", 800, source)
+    c = load()
+    res = reactions_from_bars(c, t, bars, await _market_bars(symbol, source, {}), provider)
+    if res["changed"]:
+        save(c)
+    if res["detected_now"]:
+        await refresh(load(), use_jpx=False, use_tv=False, tickers=[t])
+    return {**res, "symbol": symbol, "market_symbol": market_symbol(symbol)}
 
 
 class FyeReq(BaseModel):
@@ -362,9 +685,16 @@ async def quarter_ep(ticker: str, qid: str, req: QuarterReq):
                              "to": f"{d.isoformat()} 手入力", "source": "手入力"})
     if req.notes is not None:
         q["notes"] = req.notes
+        q.pop("notes_conflict", None)      # saving from the terminal resolves a shown conflict
     if req.checklist is not None:
         q["checklist"] = req.checklist
     q["updated"] = _now()
+    it, stock = _cov_context(t)
+    if it and stock:
+        q["state"] = E.quarter_state(q, dt.date.today()) if q.get("period_start") else q.get("state")
+        a = sync_notes(it, q, quarter_dir(stock, qid))
+        if a and a not in QUIET:
+            c["log"].append({"at": _now(), "ticker": t, "qid": qid, "what": "メモ", "from": "", "to": a, "source": "notes.md"})
     save(c)
     if req.earnings_date == "":
         await refresh(load(), use_jpx=False, use_tv=False, tickers=[t])
@@ -373,7 +703,7 @@ async def quarter_ep(ticker: str, qid: str, req: QuarterReq):
 
 @router.post("/{ticker}/{qid}/folder")
 async def quarter_folder(ticker: str, qid: str):
-    """Local folder for the quarter's files: <stock folder>/quarters/FY2027_2Q/ (+ notes.md)."""
+    """The quarter's folder: <stock folder>/quarters/FY2027_2Q/ with notes.md (kept in sync with the quarter page)."""
     from .api_coverage import _item, _open_path, state, stock_dir
 
     cov = state()
@@ -382,11 +712,9 @@ async def quarter_folder(ticker: str, qid: str):
     q = (c["quarters"].get(it["ticker"]) or {}).get(qid)
     if not q:
         raise HTTPException(404, "quarter not found")
-    p = stock_dir(cov, it) / "quarters" / qid.replace("-", "_")
+    p = quarter_dir(stock_dir(cov, it), qid)
     p.mkdir(parents=True, exist_ok=True)
-    notes = p / "notes.md"
-    if not notes.exists():
-        notes.write_text(f"# {it['ticker']} {it.get('name') or ''} — {q['label']}（{q['label_ja']}）\n\n"
-                         f"- 期間: {q['period_start']} 〜 {q['period_end']}\n- 決算発表: {(q.get('earnings') or {}).get('date')}"
-                         f"（{(q.get('earnings') or {}).get('status')}）\n\n{q.get('notes') or ''}\n", encoding="utf-8")
+    q["state"] = E.quarter_state(q, dt.date.today())
+    sync_notes(it, q, p)
+    save(c)
     return {"path": str(p), "opened": _open_path(p)}

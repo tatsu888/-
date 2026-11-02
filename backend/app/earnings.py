@@ -7,8 +7,10 @@ status, notes, checklist, links). Next earnings dates are filled MECHANICALLY wi
     2. 確定   JPX 決算発表予定日一覧         — official schedule (xlsx; downloaded or uploaded)
     3. 予定   TradingView スキャナー        — earnings_release_next_date
     4. 発表済 TradingView 前回決算日        — earnings_release_date (actual, for the quarter it reports)
-    5. 推定   前年同期の発表日 + 364 日      — same weekday one year later
-    6. 推定   四半期末 + その会社の通常の日数 — median past lag (default 40 days, 本決算 45 days)
+    5. 検出   出来高の急増（過去の四半期）    — market evidence when no date is known (earnings_reaction.py);
+                                              only from real market data, never from SIM
+    6. 推定   前年同期の発表日 + 364 日      — same weekday one year later
+    7. 推定   四半期末 + その会社の通常の日数 — median past lag (default 40 days, 本決算 45 days)
 Every candidate is kept with its source and fetch time; changes are logged.
 
 FY label conventions:
@@ -191,7 +193,8 @@ def parse_jpx_rows(rows: list[list[Any]]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # resolution (mechanical fill)
 # ---------------------------------------------------------------------------
-PRIORITY = {"手入力": 0, "確定": 1, "予定": 2, "発表済": 1, "推定": 5}
+PRIORITY = {"手入力": 0, "確定": 1, "予定": 2, "発表済": 1, "検出": 4, "推定": 5}
+KNOWN = ("発表済", "確定", "手入力", "検出")     # dates good enough for lags and 前年同期 estimates
 
 
 def same_weekday_next_year(d: D) -> D:
@@ -202,7 +205,7 @@ def typical_lag(quarters: list[dict[str, Any]], q: int) -> int:
     lags = []
     for x in quarters:
         e = x.get("earnings") or {}
-        if e.get("status") in ("発表済", "確定", "手入力") and e.get("date") and (x["q"] == 4) == (q == 4):
+        if e.get("status") in KNOWN and e.get("date") and (x["q"] == 4) == (q == 4):
             lags.append((D.fromisoformat(e["date"]) - D.fromisoformat(x["period_end"])).days)
     return int(median(lags)) if len(lags) >= 2 else (45 if q == 4 else 40)
 
@@ -231,7 +234,7 @@ def resolve(quarter: dict[str, Any], candidates: list[dict[str, Any]], prev_year
         return out
     pe = D.fromisoformat(quarter["period_end"])
     pe_e = (prev_year or {}).get("earnings") or {}
-    if pe_e.get("date") and pe_e.get("status") in ("発表済", "確定", "手入力"):
+    if pe_e.get("date") and pe_e.get("status") in KNOWN:
         d = same_weekday_next_year(D.fromisoformat(pe_e["date"]))
         return {"date": d.isoformat(), "status": "推定", "source": f"前年同期（{pe_e['date']}）+ 364 日"}
     d = pe + dt.timedelta(days=lag)
@@ -261,6 +264,6 @@ def next_earnings(quarters: list[dict[str, Any]], today: D) -> dict[str, Any] | 
 
 def last_earnings(quarters: list[dict[str, Any]], today: D) -> dict[str, Any] | None:
     done = [q for q in quarters if (q.get("earnings") or {}).get("date") and D.fromisoformat(q["earnings"]["date"]) < today
-            and q["earnings"]["status"] in ("発表済", "手入力", "確定")]
+            and q["earnings"]["status"] in KNOWN]
     done.sort(key=lambda q: q["earnings"]["date"])
     return done[-1] if done else None

@@ -249,3 +249,5 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .badge.st-推定 { color: #888; border-color: #555; }
 .badge.st-手入力 { color: #ffd84a; border-color: #ffd84a; }
 .badge.st-発表済 { color: #aaa; border-color: #666; }
+.badge.st-検出 { color: #c58cff; border-color: #c58cff; }
+a.tb { text-decoration: none; display: inline-block; }

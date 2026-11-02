@@ -2,7 +2,7 @@
 //   株価の要因分解: 個社要因 vs マーケット・セクター・スタイル・マクロ（betas estimated before the window; sliders)
 //   信用残（JPX 週次）・需給・三位一体・決算／書き起こし・ファイル（Excel・レポート）・同業
 // FCTR — macro side: which factors are strong (Notion 04.4: style / macro / sector factor returns).
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { fmtNum, fmtPct } from '../lib/format';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
@@ -103,6 +103,8 @@ function Quarters({ ticker }: { ticker: string }) {
   const [notes, setNotes] = useState<string | null>(null);
   const [fye, setFye] = useState('');
   const [all, setAll] = useState(false);
+  const rx = useAsync(() => api.get<any>(`/earnings/${ticker}/reactions`), [ticker]);
+  useEffect(() => { if (rx.data?.detected_now > 0) { setView(null); r.reload(); } }, [rx.data]);   // dates were detected
   const d = view ?? r.data;
   const qs: any[] = d?.quarters || [];
   const q = qs.find((x) => x.id === (sel || d?.next?.id)) || qs.find((x) => x.state === '期中') || qs[qs.length - 1];
@@ -134,11 +136,15 @@ function Quarters({ ticker }: { ticker: string }) {
           <div className="muted" style={{ fontSize: 11 }}>期間 {q.period_start} 〜 {q.period_end}</div>
           <div>決算発表 <span className={qe.status === '推定' ? 'muted' : ''}>{qe.date || '—'}</span> {qe.status ? <span className={`badge st-${qe.status}`}>{qe.status}</span> : null} <span className="muted" style={{ fontSize: 11 }}>{qe.source || ''}</span></div>
           {(q.candidates || []).length > 0 && <div className="muted" style={{ fontSize: 10 }}>候補: {q.candidates.map((c: any) => `${c.date} ${c.status}（${c.source}）`).join(' / ')}</div>}
+          {(() => { const x = (rx.data?.rows || []).find((y: any) => y.id === q.id && y.r1 != null); return x ? (
+            <div>決算時の反応 {!rx.data?.real ? <span className="badge demo">DEMO</span> : null} <span className={x.r1 >= 0 ? 'up' : 'down'}>{fmtPct(x.r1 * 100, 1)}</span>{x.x1 != null ? <> （対市場 <span className={x.x1 >= 0 ? 'up' : 'down'}>{fmtPct(x.x1 * 100, 1)}</span>）</> : null}
+              <span className="muted" style={{ fontSize: 11 }}> · 反応日 {x.reaction_day}（{x.timing}）· 出来高 {fmtNum(x.vol_ratio, 1)} 倍{x.drift != null ? ` · その後 4 日 ${fmtPct(x.drift * 100, 1)}` : ''}</span></div>) : null; })()}
+          {q.notes_conflict && <div className="yellow" style={{ fontSize: 11 }}>⚠ notes.md と競合: ファイル側の内容を {q.notes_conflict} に保存した（四半期フォルダ内）。確認してメモを保存すると解消</div>}
           <div className="toolbar">
             <input className="inp" type="date" value={pin} onChange={(e) => setPin(e.target.value)} />
             <button className="tb mini" disabled={!pin} onClick={() => put({ earnings_date: pin }).then(() => setPin(''))}>手入力で固定</button>
             {qe.status === '手入力' && <button className="tb mini" onClick={() => put({ earnings_date: '' })}>固定を解除</button>}
-            <button className="tb mini" onClick={async () => { try { const x = await api.post<any>(`/earnings/${ticker}/${q.id}/folder`, {}); toast(x.path); } catch (e: any) { toast(e.message); } }}>📁 四半期フォルダ</button>
+            <button className="tb mini" onClick={async () => { try { const x = await api.post<any>(`/earnings/${ticker}/${q.id}/folder`, {}); toast(x.path); } catch (e: any) { toast(e.message); } }}title="<銘柄フォルダ>/quarters/<期>/ を作って開く。notes.md はこのページのメモと双方向に同期">📁 四半期フォルダ</button>
           </div>
           <div className="trin-split" style={{ fontSize: 11 }}>
             {([['決算前', CHECK_PRE], ['決算後', CHECK_POST]] as const).map(([t, items]) => (
@@ -174,6 +180,49 @@ function Quarters({ ticker }: { ticker: string }) {
           <div className="pad"><button className="tb mini" onClick={() => setAll(!all)}>{all ? '前後 4 四半期だけ' : `すべて表示（${qs.length}）`}</button></div>
         </>
       )}
+      <Reactions rx={rx} onPick={(id) => { setSel(id); setNotes(null); setPin(''); }} />
+    </div>
+  );
+}
+
+/** 決算時の株価反応 — reaction day, market-adjusted move, drift; past dates detected from volume when unknown. */
+function Reactions({ rx, onPick }: { rx: { data?: any; error?: string; loading: boolean }; onPick: (id: string) => void }) {
+  const x = rx.data;
+  const s = x?.summary || {};
+  const rows: any[] = [...(x?.rows || [])].reverse();
+  return (
+    <div style={{ borderTop: '1px solid #222' }}>
+      <div className="pad"><span className="amber">決算時の株価反応</span> {x && !x.real ? <span className="badge demo">DEMO</span> : null}
+        {x && <span className="muted" style={{ fontSize: 10 }}> {x.symbol} · 市場 {x.market ? x.market_symbol : 'なし'} · {x.provider}{!x.real ? '（SIM の価格。検出した日付は保存しない）' : ''}</span>}</div>
+      {rx.loading && !x && <Loading />}
+      {rx.error && <div className="pad muted" style={{ fontSize: 11 }}>価格を取得できない: {rx.error}</div>}
+      {s.n > 0 && (
+        <div className="pad" style={{ fontSize: 11 }}>
+          通常の値動き（{s.basis}、過去 {s.n} 回）: <span className="yellow">平均 ±{fmtNum(s.avg_abs * 100, 1)}%</span>（中央値 ±{fmtNum(s.median_abs * 100, 1)}%、最大 ±{fmtNum(s.max_abs * 100, 1)}%）
+          · 上昇 {s.up} / 下落 {s.down}
+          {s.drift_follow != null && <> · その後 4 日 <span className={s.drift_follow >= 0 ? 'up' : 'down'}>{s.drift_follow >= 0 ? '継続' : '反転'} {fmtPct(s.drift_follow * 100, 1)}</span></>}
+          {s.detected > 0 && <span className="muted"> · うち {s.detected} 回は出来高から検出した日付</span>}
+        </div>
+      )}
+      {rows.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+        <table className="t nowrap" style={{ fontSize: 11 }}>
+          <thead><tr><th className="l">期</th><th>発表</th><th>反応日</th><th>反応</th><th>対市場</th><th>5日</th><th>その後</th><th>出来高</th><th className="l">日付</th></tr></thead>
+          <tbody>{rows.map((y) => (
+            <tr key={y.id} style={{ cursor: 'pointer' }} onClick={() => onPick(y.id)} title={y.timing || ''}>
+              <td className="l amber">{y.label}</td><td>{y.announce}</td><td>{y.reaction_day || '—'}</td>
+              <td className={(y.r1 ?? 0) >= 0 ? 'up' : 'down'}>{y.r1 != null ? fmtPct(y.r1 * 100, 1) : ''}</td>
+              <td className={(y.x1 ?? 0) >= 0 ? 'up' : 'down'}>{y.x1 != null ? fmtPct(y.x1 * 100, 1) : ''}</td>
+              <td className={(y.x5 ?? y.r5 ?? 0) >= 0 ? 'up' : 'down'}>{(y.x5 ?? y.r5) != null ? fmtPct((y.x5 ?? y.r5) * 100, 1) : ''}</td>
+              <td className={(y.drift ?? 0) >= 0 ? 'up' : 'down'}>{y.drift != null ? fmtPct(y.drift * 100, 1) : ''}</td>
+              <td>{y.vol_ratio != null ? `${fmtNum(y.vol_ratio, 1)}×` : ''}</td>
+              <td className="l">{y.kind === '検出' ? <span className="badge st-検出">検出</span> : y.kind === '検出できず' ? <span className="muted">検出できず</span> : <span className="muted">{y.status}</span>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+        </div>
+      )}
+      <div className="note" style={{ fontSize: 10 }}>反応日：発表日が分かっている期は、当日と翌営業日のうち出来高の急増が大きい方（はっきりしなければ引け後と仮定）。日付が推定の期は、推定日 ±10 日で出来高が 20 日中央値の 2 倍以上の日を反応日とし、その前営業日を発表日とみなす（「検出」。実データのときだけカレンダーに保存）。</div>
     </div>
   );
 }

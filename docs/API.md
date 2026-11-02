@@ -113,7 +113,7 @@
 
 ## カバレッジ（/api/coverage）— [COVERAGE.md](COVERAGE.md)
 
-書き込み系（`/notion/earnings`、`/folders`）は `apply: false` で計画だけを返す（dry run）。`/notion/earnings` は任意の書き出しで、決算の正本は下の決算カレンダー。
+書き込み系（`/notion/earnings`、`/folders`、`/move_root`）は `apply: false` で計画だけを返す（dry run）。`POST /move_root {to, apply}`：ルートごと（決算カレンダーを含む）を別の場所へ。コピー → 確認 → 切り替え、元のフォルダは残す。`/notion/earnings` は任意の書き出しで、決算の正本は下の決算カレンダー。
 
 ## 決算カレンダー（/api/earnings）— [EARNINGS.md](EARNINGS.md)
 
@@ -127,7 +127,9 @@
 | GET | /{ticker} | 会社（決算期末月と出所）と四半期ページ、次回・前回 |
 | PUT | /{ticker}/fye `{month}` | 決算期末月を手入力 |
 | PUT | /{ticker}/{qid} `{earnings_date, notes, checklist}` | 四半期ページ：日付の固定（`""` で解除）・メモ・チェックリスト |
-| POST | /{ticker}/{qid}/folder | 四半期フォルダ（`<銘柄フォルダ>/quarters/FY2027_2Q/`） |
+| POST | /{ticker}/{qid}/folder | 四半期フォルダ（`<銘柄フォルダ>/quarters/FY2027_2Q/`、notes.md はメモと双方向に同期） |
+| GET | /{ticker}/reactions?source | 決算時の株価反応（反応日・対市場・5 日・その後・出来高、まとめ）。実データなら出来高から検出した日付を保存 |
+| GET | /calendar.ics?days&estimates | 決算カレンダーの iCalendar（Outlook / Google カレンダー） |
 
 ## 分析の拡張（/api/insight）
 

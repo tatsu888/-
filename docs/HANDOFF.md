@@ -40,14 +40,16 @@
 | CYCL（フーリエ）、MACRO（景気局面）、PROP（認識伝播マップ）、MRGN（信用残の取り込み） | ✅ ロジックはテスト済み、SIM で画面確認済み | マクロ系の記号の一部は未検証。MRGN は JPX のファイルを手で取り込む |
 | **STK**（個別銘柄ページ：要因分解・信用残・需給・三位一体・決算・ファイル）、**FCTR**（Notion 04.4 のファクター計測）、**FLOW**（グローバル資金フロー）、全分析の**時間ウィンドウのスライダー** | ✅ テスト済み、SIM で画面確認済み | FLOW の ETF・発行済口数は未検証。スタイル・ファクターはカバレッジが 15 銘柄以上で計算 |
 | **COV**（Notion の銘柄マスタ → カバレッジ、セクター／ティッカー別フォルダ（OneDrive 可）、銘柄ごとの Excel・レポート） | ✅ テスト済み（Notion API はモック）、SIM で画面確認済み | **実 Notion API は未検証**（トークン未設定）。Notion への決算の書き出しは任意・非推奨 |
-| **決算カレンダーと四半期ページ**（Notion から独立した正本。JPX 確定 → TradingView → 推定で機械的に埋める、手入力の固定、決算期末月の検証、個社ごとの四半期ページ：メモ・チェックリスト・フォルダ、AUTO で 1 日 1 回更新）[EARNINGS.md](EARNINGS.md) | ✅ テスト済み、SIM で画面確認済み | **JPX のダウンロードは未検証**（この環境では通信拒否）。手動の「JPX 取り込み」で代替可。TradingView の決算日の列も実データでは未検証 |
+| **決算カレンダーと四半期ページ**（Notion から独立した正本。JPX 確定 → TradingView → 出来高からの検出 → 推定で機械的に埋める、手入力の固定、決算期末月の検証、個社ごとの四半期ページ：メモ（notes.md と双方向同期）・チェックリスト・フォルダ、AUTO で 1 日 1 回更新、.ics 書き出し）[EARNINGS.md](EARNINGS.md) | ✅ テスト済み、SIM で画面確認済み | **JPX のダウンロードは未検証**（この環境では通信拒否）。手動の「JPX 取り込み」で代替可。TradingView の決算日の列も実データでは未検証 |
+| **決算時の株価反応**（反応日・対市場・ドリフト・出来高、通常の値動き。日付が推定の期は出来高の急増から検出） | ✅ テスト済み（合成データ）、SIM で画面確認済み | 実データでの検出精度は未確認（しきい値 2 倍・±10 日）。検出は実データのときだけ保存 |
+| **OneDrive への移行**（COV の「ルートごと移す」：コピー → 確認 → 切り替え。決算カレンダーもルートの中） | ✅ テスト済み、SIM で画面確認済み | Windows + OneDrive の実機では未確認（開いている Excel はコピーできず、その場合は切り替えない） |
 | **分析の拡張**：XRAY（リターン分解・意図しないベット）、RRG（セクター回転）、THEME（テーマ・バスケット）、PFND（ペア候補）、TRAK（ベイズ勝率） | ✅ テスト済み、SIM で画面確認済み | 業種 ETF の記号は未検証。テーマのテンプレートは業種 ETF による代用 |
 | **AUTO 三位一体**（ルールベース・自動更新、TRIN の既定タブ） | ✅ テスト済み、SIM で自動実行を確認 | スキャナーが使えないと F のルール採点は N/A |
 | **投資の三位一体**：TRIN / SCORE / KELLY / RULE / PAIR / SHRT / CHIP / GATE / GLQ | ✅ テスト済み（Notion の数字を再現）、SIM で画面確認済み | 評点表の Weight はプレースホルダー、成長×流動性は代理指標（[FRAMEWORK.md](FRAMEWORK.md) §7） |
 | TXT（書き起こし：Lazy Prices 差分、トーン、Q&A 回避度、出典必須の AI ブリーフ検証） | ✅ | 外部通信なし |
 | TRND（Google Trends、X、StockTwits） | ⚠️ 実装済み・実通信は未検証 | X は `X_BEARER_TOKEN`（有料）が必要 |
 | 自己診断（`python -m app.diagnose`、SRC の RUN DIAGNOSTICS） | ✅ | 実ネットワーク環境で最初に実行する |
-| テスト | ✅ backend 158 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
+| テスト | ✅ backend 165 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
 
 ## 3. 起動方法
 
@@ -91,10 +93,12 @@ backend/app/
   factorlib.py       ファクター・ライブラリ（マクロ・セクター・スタイル）と要因分解
   flows.py           資金フローの代理（CMF・OBV・売買代金・相対強度）と設定・解約
   window.py          時間ウィンドウ（as-of で全系列を同じ日付で切る）
-  api_coverage.py    /api/coverage/*（COV）
+  api_coverage.py    /api/coverage/*（COV。ルートごとの移動 move_root を含む）
   coverage.py        フォルダ名・レイアウト、ルールベースのレポート（四半期の計算は earnings.py に委譲）
   earnings.py        決算カレンダーの純関数：FY・四半期（標準／ATLAS 表記）、JPX xlsx の読み取り、機械的な日付の決定、付け替え
-  api_earnings.py    /api/earnings/*（決算カレンダーの正本 data/earnings/calendar.json、JPX のダウンロード／取り込み、四半期ページ）
+  earnings_reaction.py 決算時の株価反応の純関数：反応日（既知／出来高から検出）、対市場、ドリフト、まとめ
+  api_earnings.py    /api/earnings/*（正本 <カバレッジのルート>/_terminal/earnings/calendar.json、JPX、四半期ページ、
+                     notes.md との双方向同期、反応、.ics）
   notion_api.py      Notion REST クライアント（銘柄マスタ、MICRO の個社ページ、ページ作成）
   api_insight.py     /api/insight/*（XRAY / RRG / THEME / PFND / TRAK）
   xray.py rrg.py themes.py pairscreen.py trackrecord.py   分析の拡張（純関数）
@@ -174,6 +178,8 @@ docs/                本資料群
 - Windows では、Excel が開いているファイルはロックされ、openpyxl での書き込みは失敗します（423 を返す）。xlwings なら、開いているブックにそのまま書き込めます。
 - xlwings で開いているブックに書き込むと `Save` するため、ユーザーが Excel で保存していなかった変更も一緒に保存されます。
 - HTML から編集できるのは値と数式だけです（行・列の挿入、シートの追加、書式の変更は不可）。
+- 決算時の株価反応の「検出」は出来高の急増からの推定です（推定日 ±10 日、20 日中央値の 2 倍以上、引け後の発表と仮定）。決算以外のニュースで出来高が増えた日を拾う可能性があるため、「検出」と明示し、実データのときだけ保存し、JPX・TradingView・手入力の日付があればそちらが優先されます。
+- 決算カレンダーはカバレッジのルート（OneDrive に置くことを想定）の中にあります。2 台の PC で同時に使うと OneDrive で競合することがあります。
 - 決算カレンダー：JPX の一覧ページの URL と xlsx の形式は実際には未確認です（見出しを文字で探すので多少の変更には耐えます）。ダウンロードに失敗しても前回分を使い続け、COV の「JPX 取り込み」で手動アップロードできます。推定（前年同期 + 364 日、四半期末 + 通常の日数）は「推定」と明示しています。
 
 ## 7. 次にやること（優先順）

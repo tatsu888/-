@@ -23,10 +23,27 @@ Notion から読むのは銘柄リストだけ。決算日と四半期はター�
 3. `NOTION_COVERAGE_DB`（銘柄マスタのデータベース ID）と `NOTION_MICRO_PAGE`（MICRO ページ ID）を `.env` か COV の SETTINGS に設定。
 4. COV → SYNC FROM NOTION → 決算日を更新（JPX のダウンロードが失敗したら「JPX 取り込み」）→ フォルダ（PREVIEW → APPLY）。以後、決算日は AUTO が 1 日 1 回更新する。
 
+## フォルダの中身
+```
+<ルート>\
+├─ _terminal\earnings\calendar.json        決算カレンダー（決算日・四半期のメモ・チェックリスト・ログ）
+└─ GICS4530_半導体・半導体製造装置\6857_アドバンテスト\
+   ├─ 6857_アドバンテスト_model.xlsx         Excel（COV の Excel で作成）
+   ├─ reports\                              REPORT の保存先
+   ├─ quarters\FY2027_2Q\notes.md           四半期フォルダ（STK の「📁 四半期フォルダ」。メモと双方向に同期）
+   └─ .coverage.json                         ティッカーの目印
+```
+既定のルートは `<最初の Excel フォルダ>\Coverage`（`TERMINAL_EXCEL_DIRS` を設定していなければ `<リポジトリ>\data\workbooks\Coverage`）。COV の上部に表示。
+
 ## OneDrive に移すとき
-- フォルダ一式を OneDrive に移動し、COV の SETTINGS のルート（または `.env` の `COVERAGE_DIR`）を新しい場所に変えるだけ。保存しているのはルートからの相対パスと `.coverage.json` なので、リンクは切れない。
+- **COV → SETTINGS →「ルートごと移す」**：移動先（例 `C:\Users\<you>\OneDrive\Coverage`）を入れて PREVIEW（ファイル数・容量・衝突）→ APPLY。
+  - **コピー → 全ファイルのサイズを確認 → ルートを切り替え**。元のフォルダは消さない（確認してから手で削除。削除するまで XLS に同じファイルが見えることがある）。
+  - 決算カレンダー（`_terminal`）も一緒に移る。手で紐付けた Excel のリンクも新しい場所に付け替える。
+  - Office のロック・ファイル（`~$…`）はコピーしない。移動先に内容の違う同名ファイルがあれば中止（409）。コピーできないファイル（Excel で開いている等）があればルートは切り替えず、閉じて再実行すればコピー済みのものは飛ばす。
+- 手で移す場合は、フォルダ一式（`_terminal` を含む）を移してから SETTINGS のルート（または `.env` の `COVERAGE_DIR`）を変える。保存しているのはルートからの相対パスと `.coverage.json` なので、リンクは切れない。
 - フォルダ名は Windows / OneDrive で使えない文字（`\ / : * ? " < > |`）を `_` に置換。セクター・フォルダは `GICS4530_…` のように接頭辞を付け、4桁コードが同じティッカー（例 4530 = 久光製薬）に誤って紐付かないようにしている。
 - OneDrive の「オンラインのみ」のファイルは、開くときにダウンロードされる。Excel で開いている間は XLS からの書き込みは xlwings 経由になる（EXCEL.md）。
+- 2 台の PC で同時に使うと、`calendar.json` が OneDrive で競合することがある（1 台ずつ使う）。
 
 ## API
-決算カレンダーは `/api/earnings/*`（[EARNINGS.md](EARNINGS.md)）。COV：`GET /api/coverage`、`PUT /api/coverage/config`、`POST /api/coverage/sync`、`POST /api/coverage/earnings/refresh`、`PUT /api/coverage/{ticker}/earnings`、`GET /api/coverage/calendar`、`POST /api/coverage/notion/earnings {apply, create_pages, update_master, add_properties, days_ahead, tickers}`、`POST /api/coverage/folders {apply, layout, tickers}`、`POST /api/coverage/{ticker}/excel`、`POST /api/coverage/{ticker}/open_folder`、`POST /api/coverage/{ticker}/report {save, to_notion}`。
+決算カレンダーは `/api/earnings/*`（[EARNINGS.md](EARNINGS.md)）。COV：`GET /api/coverage`、`PUT /api/coverage/config`、`POST /api/coverage/sync`、`POST /api/coverage/earnings/refresh`、`PUT /api/coverage/{ticker}/earnings`、`GET /api/coverage/calendar`、`POST /api/coverage/notion/earnings {apply, create_pages, update_master, add_properties, days_ahead, tickers}`、`POST /api/coverage/folders {apply, layout, tickers}`、`POST /api/coverage/move_root {to, apply}`、`POST /api/coverage/{ticker}/excel`、`POST /api/coverage/{ticker}/open_folder`、`POST /api/coverage/{ticker}/report {save, to_notion}`。

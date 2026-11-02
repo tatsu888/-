@@ -1,5 +1,7 @@
 import datetime as dt
 import io
+import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -220,3 +222,83 @@ def test_tradingview_dates_are_stable_across_refreshes(tmp_path, monkeypatch):
         # a refresh without TradingView (e.g. after a JPX upload) keeps TradingView's last view
         c.post("/api/earnings/refresh", json={"jpx": False, "tradingview": False})
         assert c.get("/api/earnings/6857").json()["next"]["status"] == "予定"
+
+
+def _cov(c, tmp_path, items, name="Cov"):
+    c.put("/api/store/coverage", json={"value": {"items": items, "pages": {}, "config": {"layout": "sector", "root": str(tmp_path / name)}}})
+
+
+def test_calendar_lives_in_the_coverage_root_and_migrates(tmp_path):
+    from app.main import app
+
+    from app import api_earnings as AE
+    with TestClient(app) as c:
+        items = [{"ticker": "6857", "symbol": "TSE:6857", "name": "アドバンテスト", "gics_group": "4530 | 半導体", "fye_month": 3}]
+        # a calendar from the first version (data dir) is moved into the coverage root on first use
+        AE.LEGACY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        AE.LEGACY_PATH.write_text(json.dumps({"companies": {"6857": {"fye_month": 3, "fye_source": "手入力"}}, "quarters": {}}), encoding="utf-8")
+        _cov(c, tmp_path, items)
+        cal = c.get("/api/earnings/6857").json()
+        assert cal["company"]["fye_source"] == "手入力"
+        assert (tmp_path / "Cov" / "_terminal" / "earnings" / "calendar.json").is_file()
+        assert not AE.LEGACY_PATH.exists() and list(AE.LEGACY_PATH.parent.glob("calendar.moved-*.json"))   # backup kept
+        assert any(x["what"] == "保存場所" for x in c.get("/api/earnings/log").json()["log"])
+        c.post("/api/earnings/refresh", json={"jpx": False, "tradingview": False})
+        # the root is changed in SETTINGS without moving the folders → the calendar follows (copied, old one kept)
+        c.put("/api/coverage/config", json={"root": str(tmp_path / "OneDrive" / "Coverage")})
+        assert c.get("/api/earnings/6857").json()["company"]["fye_month"] == 3
+        assert (tmp_path / "OneDrive" / "Coverage" / "_terminal" / "earnings" / "calendar.json").is_file()
+        assert (tmp_path / "Cov" / "_terminal" / "earnings" / "calendar.json").is_file()
+
+
+def test_quarter_notes_sync_with_notes_md(tmp_path):
+    from app.main import app
+
+    from app.api_earnings import NOTES_MARK
+    with TestClient(app) as c:
+        items = [{"ticker": "6857", "symbol": "TSE:6857", "name": "アドバンテスト", "gics_group": "4530 | 半導体", "fye_month": 3}]
+        _cov(c, tmp_path, items)
+        c.post("/api/earnings/refresh", json={"jpx": False, "tradingview": False})
+        v = c.get("/api/earnings/6857").json()
+        q = next(x for x in v["quarters"] if x["state"] == "期中")
+        c.put(f"/api/earnings/6857/{q['id']}", json={"notes": "注目: HBM 向けテスタ"})
+        path = Path(c.post(f"/api/earnings/6857/{q['id']}/folder").json()["path"])
+        md = path / "notes.md"
+        text = md.read_text(encoding="utf-8")
+        assert NOTES_MARK in text and text.strip().endswith("注目: HBM 向けテスタ") and q["label_ja"] in text
+        # edited in the file (e.g. on another PC through OneDrive) → picked up by the quarter page
+        md.write_text(text.replace("注目: HBM 向けテスタ", "注目: HBM 向けテスタ\n- 受注残は前期比で増加"), encoding="utf-8")
+        got = next(x for x in c.get("/api/earnings/6857").json()["quarters"] if x["id"] == q["id"])
+        assert got["notes"] == "注目: HBM 向けテスタ\n- 受注残は前期比で増加"
+        assert any(x["what"] == "メモ" and x["to"] == "ファイルから取り込み" for x in c.get("/api/earnings/log").json()["log"])
+        # edited in the terminal → written to the file
+        c.put(f"/api/earnings/6857/{q['id']}", json={"notes": "結果: 上振れ"})
+        assert md.read_text(encoding="utf-8").strip().endswith("結果: 上振れ")
+        # a pinned date shows up in the header; the note is untouched
+        pin = (dt.date.today() + dt.timedelta(days=50)).isoformat()
+        c.put(f"/api/earnings/6857/{q['id']}", json={"earnings_date": pin})
+        t2 = md.read_text(encoding="utf-8")
+        assert f"決算発表: {pin}（手入力" in t2 and t2.strip().endswith("結果: 上振れ")
+        # both sides changed → the terminal's text is kept, the file's text is saved next to it (nothing lost)
+        md.write_text(t2.replace("結果: 上振れ", "ファイル側の追記"), encoding="utf-8")
+        r = c.put(f"/api/earnings/6857/{q['id']}", json={"notes": "ターミナル側の追記"}).json()
+        conflicts = list(path.glob("notes.conflict-*.md"))
+        assert len(conflicts) == 1 and "ファイル側の追記" in conflicts[0].read_text(encoding="utf-8")
+        assert md.read_text(encoding="utf-8").strip().endswith("ターミナル側の追記")
+        assert next(x for x in r["quarters"] if x["id"] == q["id"])["notes_conflict"] == conflicts[0].name
+        # a hand-written file without the marker counts as notes as a whole (first sync of an empty page)
+        q2 = next(x for x in v["quarters"] if x["state"] == "未到来")
+        d2 = path.parent / q2["id"].replace("-", "_")
+        d2.mkdir()
+        (d2 / "notes.md").write_text("手書きのメモ\r\n2 行目", encoding="utf-8")
+        got2 = next(x for x in c.get("/api/earnings/6857").json()["quarters"] if x["id"] == q2["id"])
+        assert got2["notes"] == "手書きのメモ\n2 行目" and NOTES_MARK in (d2 / "notes.md").read_text(encoding="utf-8")
+        # a notes.md written by the first version (generated header, no marker) is not a conflict
+        q3 = next(x for x in v["quarters"] if x["state"] == "未到来" and x["id"] != q2["id"])
+        c.put(f"/api/earnings/6857/{q3['id']}", json={"notes": "前のバージョンのメモ"})
+        d3 = path.parent / q3["id"].replace("-", "_")
+        d3.mkdir()
+        (d3 / "notes.md").write_text(f"# 6857 アドバンテスト — {q3['label']}（{q3['label_ja']}）\n\n- 期間: {q3['period_start']} 〜 {q3['period_end']}\n"
+                                     f"- 決算発表: 2027-02-01（推定）\n\n前のバージョンのメモ\n", encoding="utf-8")
+        got3 = next(x for x in c.get("/api/earnings/6857").json()["quarters"] if x["id"] == q3["id"])
+        assert got3["notes"] == "前のバージョンのメモ" and not got3.get("notes_conflict") and not list(d3.glob("notes.conflict-*"))

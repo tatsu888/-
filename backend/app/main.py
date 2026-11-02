@@ -58,6 +58,10 @@ async def lifespan(_: FastAPI):
     S.hub = Hub(prov, settings.push_interval_sec, S.alerts)
     await S.hub.start()
     await S.hub.resync()
+    try:  # the coverage root joins the Excel library at a stable position (file ids / manual links stay valid)
+        api_coverage.ensure_excel_root(api_coverage.root_dir())
+    except Exception:  # noqa: BLE001
+        log.warning("coverage root not added to the Excel library", exc_info=True)
     watch = asyncio.create_task(_excel_watch())
     ind = asyncio.create_task(_indicator_alerts())
     trin = asyncio.create_task(api_trinity.loop(settings.trinity_first_delay_sec)) if settings.trinity_auto else None

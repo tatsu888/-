@@ -189,7 +189,8 @@ def test_coverage_api(tmp_path, monkeypatch):
         assert upd[2]["properties"]["次回決算期"]["rich_text"][0]["text"]["content"] == nxt["6857"]
         # folders: dry run, apply, then switch layout (move)
         f = c.post("/api/coverage/folders", json={"apply": False}).json()
-        assert f["summary"]["create"] == 2 and not (tmp_path / "Coverage").exists()
+        # the dry run creates no stock folder (the root only holds the earnings calendar: <root>/_terminal/earnings)
+        assert f["summary"]["create"] == 2 and [p.name for p in (tmp_path / "Coverage").iterdir()] == ["_terminal"]
         c.post("/api/coverage/folders", json={"apply": True})
         adv = tmp_path / "Coverage" / "GICS4530_半導体・半導体製造装置" / "6857_アドバンテスト"
         assert (adv / ".coverage.json").exists() and (adv / "reports").is_dir()

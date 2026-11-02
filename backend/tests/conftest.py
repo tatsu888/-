@@ -13,3 +13,13 @@ os.environ.pop("TERMINAL_EXCEL_DIRS", None)
 os.environ.pop("TERMINAL_EXCEL_WRITE", None)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_calendar_pointer():
+    """Each test uses its own coverage root; forget where the earnings calendar was used last, so a fresh root does
+    not inherit the previous test's calendar through the migration."""
+    (Path(os.environ["TERMINAL_DATA_DIR"]) / "earnings" / "location.json").unlink(missing_ok=True)
+    yield
