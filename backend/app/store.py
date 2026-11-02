@@ -23,6 +23,8 @@ DEFAULTS: dict[str, Any] = {
     "harness_models": {}, # name -> forecast harness spec (JSON)
     "workspaces": {},     # name -> {panels, layout, security} (saved terminal layouts)
     "harness_versions": {},  # model name -> [{version, saved_at, note, spec_hash, summary, spec}]
+    "macro_map": None,    # user-edited propagation map (None -> macro.DEFAULT_MAP)
+    "screens": {},        # saved SCRN screens
     "trades": [],         # trade blotter [{id, time, symbol, side, qty, price, fee, note}]
 }
 

@@ -36,6 +36,8 @@ export const FUNCTIONS: FnDef[] = [
   { code: 'TEAR', name: 'Tear Sheet', desc: '銘柄1枚サマリー (印刷/PDF)', needsSecurity: true, group: 'Security' },
   { code: 'MOST', name: 'Screener', desc: '値上がり/値下がり/出来高/時価総額 (TradingView scanner)', group: 'Monitor' },
   { code: 'HMAP', name: 'Heatmap', desc: 'マーケットヒートマップ (時価総額×騰落)', group: 'Monitor' },
+  { code: 'PROP', name: 'Propagation Map', desc: '認識伝播マップ: ニッチ→マクロ投資家→日本株への伝播・未波及チェック・先行指標', group: 'Macro' },
+  { code: 'MACRO', name: 'Macro Dashboard', desc: 'マクロ: 金利・カーブ・BEI・クレジット・ボラ・景気局面 (成長×インフレ)', group: 'Macro' },
   { code: 'FACT', name: 'Factor Analysis', desc: 'ファクター/スタイル分析 (ETF・クロスセクション・セクター)', group: 'Analytics' },
   { code: 'LAG', name: 'Lead-Lag', desc: 'タイムラグ分析 (原油→株, 米国テーマ→日本 等)', group: 'Analytics' },
   { code: 'CORR', name: 'Correlation', desc: '相関行列', group: 'Analytics' },

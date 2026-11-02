@@ -53,6 +53,9 @@ def all_configured_symbols() -> list[str]:
         syms += [cfg["benchmark"], *cfg["factors"].values()]
     for t in THEMES:
         syms += [t["leader"], *t["followers"]] + ([t["market"]] if t["market"] else [])
+    from .macro import DEFAULT_MAP, all_macro_symbols
+
+    syms += all_macro_symbols(DEFAULT_MAP)
     return list(dict.fromkeys(syms))
 
 

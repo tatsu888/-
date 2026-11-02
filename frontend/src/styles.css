@@ -188,3 +188,19 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
   body.printing .no-print { display: none; }
   html, body, #root { height: auto; overflow: visible; background: #fff; }
 }
+
+/* --- PROP (recognition propagation map) ---------------------------------- */
+.prop-head, .prop-row { display: grid; grid-template-columns: 120px 1fr 1fr 1fr; gap: 0; }
+.prop-arrow { grid-column: 2 / span 3; background: linear-gradient(90deg, #0b2d6b, #1f4fa8); color: #fff; text-align: center; font-weight: 700;
+  padding: 4px; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%); margin: 4px 0; }
+.prop-head > div:first-child { grid-row: 1 / span 2; }
+.prop-tier { text-align: center; color: var(--muted); padding: 2px 4px 6px; border-bottom: 1px solid var(--line); font-size: 11px; }
+.prop-tier b { color: var(--text); font-size: 14px; }
+.prop-row { border-bottom: 1px solid #1c1c1c; }
+.prop-cls { color: var(--amber); font-weight: 700; padding: 8px 6px; display: flex; align-items: center; }
+.prop-cell { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; align-content: flex-start; position: relative; border-left: 1px dashed #333; min-height: 54px; }
+.prop-tile { border: 1px solid #333; padding: 3px 6px; cursor: pointer; min-width: 120px; max-width: 220px; color: #fff; }
+.prop-tile.sel { outline: 2px solid var(--amber); }
+.prop-tile .prop-label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prop-cz { position: absolute; right: 4px; bottom: 2px; font-size: 10px; }
+@media (max-width: 900px) { .prop-head, .prop-row { grid-template-columns: 80px 1fr; } .prop-cell, .prop-tier { grid-column: 2; } }

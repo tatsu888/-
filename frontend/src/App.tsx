@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CommandLine } from './components/CommandLine';
 import { Clocks, FKeys, StatusBar, TickerTape } from './components/Chrome';
-import { Ctx } from './ctx';
+import { Ctx, useTerminal } from './ctx';
 import { api, store } from './lib/api';
 import { FUNCTIONS } from './lib/commands';
 import { feed, useFeedMessages } from './lib/feed';
@@ -19,7 +19,7 @@ import { HMAP, MOST } from './functions/Screener';
 import { DES, NEWS, NOTE, TA } from './functions/Security';
 import { XLS } from './functions/XLS';
 import { SCRN, TEAR } from './functions/Reports';
-import { CYCL } from './functions/Research';
+import { CYCL, MACRO, PROP } from './functions/Research';
 
 const DEFAULT_PANELS: PanelState[] = [
   { id: 'p1', fn: 'GP' },
@@ -205,6 +205,7 @@ function PanelView({ p, focused, onFocus, security, onPin, onFn, switchProvider,
 }
 
 function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol: string; args?: string; switchProvider: (n: string) => void }) {
+  const { run } = useTerminal();
   switch (fn) {
     case 'GP': return <GP key={symbol} symbol={symbol} />;
     case 'DES': return <DES symbol={symbol} />;
@@ -222,6 +223,8 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'EARN': return <EARN />;
     case 'TEAR': return <TEAR symbol={symbol} />;
     case 'CYCL': return <CYCL symbol={symbol} />;
+    case 'PROP': return <PROP onChart={(s) => run('GP', s)} />;
+    case 'MACRO': return <MACRO />;
     case 'SCRN': return <SCRN />;
     case 'W': return <Watchlist />;
     case 'WEI': case 'FX': case 'RATES': case 'CMDTY': case 'CRYP': return <ListMonitor list={fn} />;
