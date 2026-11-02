@@ -11,6 +11,7 @@ import { fmtBig, fmtNum, fmtPct } from '../lib/format';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { LineChart } from '../components/LineChart';
 import { takeKellyPrefill } from './Insight';
+import { WindowSlider, type WindowValue } from '../components/WindowSlider';
 
 export const TRIN_TABS = ['AUTO', 'MAP', 'SCORE', 'KELLY', 'RULE', 'PAIR', 'SHRT', 'CHIP', 'GATE', 'GLQ'] as const;
 type Tab = (typeof TRIN_TABS)[number];
@@ -581,7 +582,9 @@ function PairTab({ symbol }: { symbol: string }) {
   const [earn, setEarn] = useState('');
   const [q, setQ] = useState<any>(null);
   useEffect(() => setLong(symbol), [symbol]);
-  const r = useAsync(() => (q ? api.post<any>('/framework/pair', q) : Promise.resolve(null)), [q]);
+  const [pw, setPw] = useState<WindowValue>({ length: 500, offset: 0 });
+  const [sw, setSw] = useState(21);
+  const r = useAsync(() => (q ? api.post<any>('/framework/pair', { ...q, lookback: pw.length, end_offset: pw.offset, sigma_window: sw }) : Promise.resolve(null)), [q, pw.length, pw.offset, sw]);
   const go = () => setQ({
     long, short, spread_class: cls || null, borrow_ok: borrow === '' ? null : borrow === 'yes',
     earnings_dirs: earn.trim() ? earn.trim().split(/\s+/).map((t) => t.split('/').map((x) => (x.startsWith('-') ? -1 : 1))) : null,
@@ -597,7 +600,10 @@ function PairTab({ symbol }: { symbol: string }) {
         <span className="lbl">貸株</span><select className="inp" value={borrow} onChange={(e) => setBorrow(e.target.value)}><option value="">?</option><option value="yes">OK</option><option value="no">NG</option></select>
         <span className="lbl">営業利益方向(四半期)</span><input className="inp" value={earn} onChange={(e) => setEarn(e.target.value)} placeholder="+/- -/+ +/+" style={{ width: 120 }} />
         <button className="tb on" onClick={go} disabled={!long || !short}>ANALYZE</button>
+        <span className="lbl">Pair Sigma 窓</span>
+        <select className="inp" value={sw} onChange={(e) => setSw(+e.target.value)}>{[21, 42, 63].map((x) => <option key={x} value={x}>{x}日</option>)}</select>
       </div>
+      <WindowSlider label="期間" value={pw} onChange={setPw} min={80} max={1500} step={10} maxOffset={750} asof={r.data?.asof} />
       {r.loading && <Loading />}
       <ErrorBox error={r.error} />
       {d && (
@@ -876,7 +882,8 @@ export function GLPanel({ gl }: { gl: any }) {
 
 export function GLQ() {
   const [source, setSource] = useState('');
-  const r = useAsync(() => api.get<any>('/macro/growth_liquidity', { source: source || undefined }), [source]);
+  const [w, setW] = useState<WindowValue>({ length: 63, offset: 0 });
+  const r = useAsync(() => api.get<any>('/macro/growth_liquidity', { source: source || undefined, horizon: w.length, end_offset: w.offset }), [source, w.length, w.offset]);
   const gl = r.data;
   const occ = useMemo(() => gl, [gl]);
   return (
@@ -887,6 +894,7 @@ export function GLQ() {
         <button className="tb" onClick={r.reload}>REFRESH</button>
         <span className="muted">4 ボトミング → 1 回復 → 2 ピーキング → 3 スローダウン（時計回り）</span>
       </div>
+      <WindowSlider label="変化の期間" value={w} onChange={setW} min={20} max={252} maxOffset={1000} asof={gl?.asof} />
       {r.loading && <Loading />}
       <ErrorBox error={r.error || gl?.error} />
       {occ && !occ.error && <GLPanel gl={occ} />}

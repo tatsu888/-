@@ -504,7 +504,16 @@ async def report(ticker: str, req: ReportReq):
         a = snap_rows.get(pi["symbol"])
         peers.append({"ticker": pi["ticker"], "name": pi.get("name"), "pe": ps.get("price_earnings_ttm"), "pb": ps.get("price_book_ratio"),
                       "ret_1m": ps.get("Perf.1M"), "verdict": f"{a['direction']} c{a['conviction']}" if a else None})
-    ctx = {"item": it, "scan": scan, "perf": perf, "earnings": it.get("earnings"), "auto_row": snap_rows.get(sym),
+    margin = None
+    try:
+        from .api_research import mstore
+        from .margin import stock_analysis
+        ms = mstore().series(it["ticker"])
+        if ms:
+            margin = stock_analysis(ms, series.get(sym) or [])
+    except Exception as e:  # noqa: BLE001
+        errors["margin"] = str(e)
+    ctx = {"item": it, "scan": scan, "perf": perf, "earnings": it.get("earnings"), "auto_row": snap_rows.get(sym), "margin": margin,
            "scorecard": cards[-1] if cards else None, "xray": xr, "chip": chip, "peers": peers, "transcript": tr, "themes": themes,
            "generated_at": dt.datetime.now().isoformat(timespec="seconds"), "source": req.source or S.registry.active_name}
     rep = C.build_report(ctx)

@@ -10,6 +10,7 @@ import { fmtNum, fmtPct } from '../lib/format';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { LineChart } from '../components/LineChart';
 import { useTerminal } from '../ctx';
+import { WindowSlider, type WindowValue } from '../components/WindowSlider';
 
 const SRC = ['', 'tradingview', 'yahoo', 'sim'];
 const ts = (d: string) => Math.floor(Date.parse(d) / 1000);
@@ -41,10 +42,10 @@ function Stack({ shares, height = 18 }: { shares: Record<string, number>; height
 // ---------------------------------------------------------------- XRAY
 export function XRAY({ symbol }: { symbol: string }) {
   const [mode, setMode] = useState<'STOCK' | 'BOOK'>('STOCK');
-  const [lb, setLb] = useState(252);
+  const [w, setW] = useState<WindowValue>({ length: 252, offset: 0 });
   const [source, setSource] = useState('');
-  const one = useAsync(() => (mode === 'STOCK' ? api.get<any>('/insight/xray', { symbol, lookback: lb, source: source || undefined }) : Promise.resolve(null)), [symbol, lb, source, mode]);
-  const book = useAsync(() => (mode === 'BOOK' ? api.post<any>('/insight/xray/book', { lookback: lb, source: source || null }) : Promise.resolve(null)), [lb, source, mode]);
+  const one = useAsync(() => (mode === 'STOCK' ? api.get<any>('/insight/xray', { symbol, lookback: w.length, end_offset: w.offset, source: source || undefined }) : Promise.resolve(null)), [symbol, w.length, w.offset, source, mode]);
+  const book = useAsync(() => (mode === 'BOOK' ? api.post<any>('/insight/xray/book', { lookback: w.length, end_offset: w.offset, source: source || null }) : Promise.resolve(null)), [w.length, w.offset, source, mode]);
   const d = one.data;
   const b = book.data;
   const maxImp = d ? Math.max(0.01, ...d.coefficients.map((c: any) => Math.abs(c.impact_1sd_pct))) : 1;
@@ -52,10 +53,9 @@ export function XRAY({ symbol }: { symbol: string }) {
     <div>
       <div className="toolbar">
         {(['STOCK', 'BOOK'] as const).map((m) => <button key={m} className={`tb ${mode === m ? 'on' : ''}`} onClick={() => setMode(m)}>{m === 'STOCK' ? `銘柄 ${symbol}` : 'ブック（RULE）'}</button>)}
-        <span className="lbl">LOOKBACK</span>
-        <select className="inp" value={lb} onChange={(e) => setLb(+e.target.value)}>{[126, 252, 500].map((x) => <option key={x}>{x}</option>)}</select>
         <SourceSel v={source} set={setSource} />
       </div>
+      <WindowSlider label="推定期間" value={w} onChange={setW} min={120} max={1000} step={5} maxOffset={750} asof={one.data?.to} />
       {(one.loading || book.loading) && <Loading />}
       <ErrorBox error={mode === 'STOCK' ? one.error : book.error} />
       {mode === 'STOCK' && d && (
@@ -132,9 +132,10 @@ export function RRG({ args }: { args?: string }) {
   const [uni, setUni] = useState((args || 'JP17').toUpperCase());
   const [syms, setSyms] = useState('');
   const [q, setQ] = useState<any>({ universe: (args || 'JP17').toUpperCase() });
-  const [tail, setTail] = useState(8);
+  const [w, setW] = useState<WindowValue>({ length: 8, offset: 0 });
+  const [n, setN] = useState(10);
   const [source, setSource] = useState('');
-  const r = useAsync(() => api.get<any>('/insight/rrg', { ...q, tail, source: source || undefined }), [q, tail, source]);
+  const r = useAsync(() => api.get<any>('/insight/rrg', { ...q, tail: w.length, end_weeks: w.offset, n, source: source || undefined }), [q, w.length, w.offset, n, source]);
   const d = r.data;
   const rows: any[] = (d?.rows || []).filter((x: any) => x.quadrant);
   const pts = rows.flatMap((x: any) => x.tail);
@@ -146,11 +147,12 @@ export function RRG({ args }: { args?: string }) {
       <div className="toolbar">
         {['JP17', 'US11', 'COVER', 'CUSTOM'].map((u) => <button key={u} className={`tb ${uni === u ? 'on' : ''}`} onClick={() => { setUni(u); if (u !== 'CUSTOM') setQ({ universe: u }); }}>{u === 'JP17' ? 'TOPIX-17' : u === 'US11' ? 'US セクター' : u === 'COVER' ? 'カバレッジ' : 'CUSTOM'}</button>)}
         {uni === 'CUSTOM' && (<><input className="inp" style={{ width: 260 }} value={syms} onChange={(e) => setSyms(e.target.value)} placeholder="TSE:8035, TSE:6857, …" /><button className="tb on" onClick={() => setQ({ universe: 'CUSTOM', symbols: syms })}>GO</button></>)}
-        <span className="lbl">TAIL</span>
-        <select className="inp" value={tail} onChange={(e) => setTail(+e.target.value)}>{[4, 8, 12, 26].map((x) => <option key={x}>{x}</option>)}</select>
+        <span className="lbl">平滑化</span>
+        <select className="inp" value={n} onChange={(e) => setN(+e.target.value)}>{[6, 10, 14, 20].map((x) => <option key={x} value={x}>{x}週</option>)}</select>
         <SourceSel v={source} set={setSource} />
         {d && <span className="muted">vs {d.bench} · {d.weeks} weeks</span>}
       </div>
+      <WindowSlider label="軌跡" unit="weeks" value={w} onChange={setW} min={2} max={26} maxOffset={156} asof={d?.asof} />
       {r.loading && <Loading />}
       <ErrorBox error={r.error} />
       {d && (
@@ -214,7 +216,8 @@ export function THEME() {
   const [source, setSource] = useState('');
   const themes: any[] = list.data?.themes || [];
   const cur = themes.find((t) => t.id === sel) || themes[0];
-  const an = useAsync(() => (cur ? api.get<any>(`/insight/themes/${cur.id}/analyze`, { source: source || undefined }) : Promise.resolve(null)), [cur?.id, source, list.data]);
+  const [tw, setTw] = useState<WindowValue>({ length: 500, offset: 0 });
+  const an = useAsync(() => (cur ? api.get<any>(`/insight/themes/${cur.id}/analyze`, { source: source || undefined, lookback: tw.length, end_offset: tw.offset }) : Promise.resolve(null)), [cur?.id, source, list.data, tw.length, tw.offset]);
   const d = an.data;
   const startEdit = (t: any) => setEdit({ ...t, longsText: fmtMembers(t.longs), shortsText: fmtMembers(t.shorts), driverText: typeof t.driver === 'string' || !t.driver ? t.driver || '' : JSON.stringify(t.driver) });
   const save = async () => {
@@ -275,6 +278,7 @@ export function THEME() {
           </div>
         )}
         {cur && !edit && (cur.fact || cur.reason) && <div className="pad muted" style={{ fontSize: 11 }}>事実: {cur.fact} ／ 理由: {cur.reason} {cur.portfolio ? `／ ${cur.portfolio}` : ''}</div>}
+        {cur && !edit && <WindowSlider label="期間" value={tw} onChange={setTw} min={120} max={1500} step={10} maxOffset={750} asof={d?.asof} />}
         {an.loading && <Loading />}
         <ErrorBox error={an.error || d?.error} />
         {d && !d.error && !edit && (
@@ -322,6 +326,7 @@ export function PFND() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [onlyPass, setOnlyPass] = useState(false);
+  const [pw, setPw] = useState<WindowValue>({ length: 252, offset: 0 });
   const go = async () => {
     setBusy(true); setErr('');
     let groups: any = null;
@@ -333,7 +338,7 @@ export function PFND() {
         if (syms.length) groups[g.trim() || 'custom'] = [...(groups[g.trim() || 'custom'] || []), ...syms];
       }
     }
-    try { setRes(await api.post<any>('/insight/pairs/screen', { by, groups, source: source || null })); } catch (e: any) { setErr(e.message); }
+    try { setRes(await api.post<any>('/insight/pairs/screen', { by, groups, source: source || null, lookback: pw.length, end_offset: pw.offset })); } catch (e: any) { setErr(e.message); }
     setBusy(false);
   };
   const rows: any[] = (res?.pairs || []).filter((p: any) => !onlyPass || (p.verdict === 'PASS' && !p.entry_blocked));
@@ -347,6 +352,7 @@ export function PFND() {
         <label className="muted"><input type="checkbox" checked={onlyPass} onChange={(e) => setOnlyPass(e.target.checked)} /> PASS かつ入場可のみ</label>
         {res && <span className="muted">{res.evaluated} ペア評価 · 評点あり {res.scored} 銘柄</span>}
       </div>
+      <WindowSlider label="β・固有の期間" value={pw} onChange={setPw} min={60} max={500} step={5} maxOffset={500} asof={res?.asof} />
       <details className="pad"><summary className="muted">カスタム・グループ（任意）: 1行に「グループ名: SYM, SYM, …」— 空欄なら AUTO のユニバースを業種別に</summary>
         <textarea className="inp" style={{ width: '100%', height: 70 }} value={custom} onChange={(e) => setCustom(e.target.value)} placeholder={'半導体製造装置: TSE:8035, TSE:6857, TSE:7735, TSE:6920\nFA: TSE:6954, TSE:6273, TSE:6506'} />
       </details>

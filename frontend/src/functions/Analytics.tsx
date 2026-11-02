@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { cls, fmtNum, fmtPct, heat, shortSym } from '../lib/format';
 import { Bars, ErrorBox, Loading, useAsync } from '../components/ui';
+import { WindowSlider, type WindowValue } from '../components/WindowSlider';
 import { LineChart } from '../components/LineChart';
 import { useTerminal } from '../ctx';
 
@@ -247,20 +248,18 @@ export function CORR({ args }: { args?: string }) {
   const [syms, setSyms] = useState(def);
   const [input, setInput] = useState(def);
   const [iv, setIv] = useState('1D');
-  const [bars, setBars] = useState(250);
+  const [w, setW] = useState<WindowValue>({ length: 250, offset: 0 });
   const [source, setSource] = useState('');
-  const r = useAsync(() => api.get<any>('/analytics/correlation', { symbols: syms, interval: iv, bars, source }), [syms, iv, bars, source]);
+  const r = useAsync(() => api.get<any>('/analytics/correlation', { symbols: syms, interval: iv, bars: w.length, end_offset: w.offset, source }), [syms, iv, w.length, w.offset, source]);
   return (
     <div>
       <div className="toolbar">
         <input className="inp" style={{ flex: 1, minWidth: 200 }} value={input} onChange={(e) => setInput(e.target.value.toUpperCase())} onKeyDown={(e) => e.key === 'Enter' && setSyms(input)} />
         <button className="tb" onClick={() => setSyms(input)}>RUN</button>
         {['60', '1D', '1W'].map((x) => <button key={x} className={`tb ${iv === x ? 'on' : ''}`} onClick={() => setIv(x)}>{x}</button>)}
-        <select className="inp" value={bars} onChange={(e) => setBars(+e.target.value)}>
-          {[60, 120, 250, 500, 1000].map((x) => <option key={x}>{x}</option>)}
-        </select>
         <SourcePick value={source} onChange={setSource} />
       </div>
+      <WindowSlider label="BARS" value={w} onChange={setW} min={30} max={1000} step={5} maxOffset={1000} asof={r.data?.asof} />
       {r.loading && <Loading />}
       <ErrorBox error={r.error} />
       {r.data && (

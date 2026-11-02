@@ -6,6 +6,7 @@ import { useQuotes } from '../lib/feed';
 import { cls, fmtBig, fmtNum, fmtPct, heat, shortSym } from '../lib/format';
 import { bs, impliedVol, type OptType } from '../lib/options';
 import { ErrorBox, Loading, useAsync, XYChart } from '../components/ui';
+import { WindowSlider, type WindowValue } from '../components/WindowSlider';
 import { LineChart } from '../components/LineChart';
 import { useTerminal } from '../ctx';
 
@@ -28,17 +29,16 @@ const defaultBench = (s: string) => (s.startsWith('TSE:') ? 'TVC:TOPIX' : 'SP:SP
 export function BETA({ symbol }: { symbol: string }) {
   const [bench, setBench] = useState(defaultBench(symbol));
   const [iv, setIv] = useState('1D');
-  const [bars, setBars] = useState(500);
-  const r = useAsync(() => api.get<any>('/analytics/beta', { symbol, benchmark: bench, interval: iv, bars }), [symbol, bench, iv, bars]);
+  const [w, setW] = useState<WindowValue>({ length: 500, offset: 0 });
+  const r = useAsync(() => api.get<any>('/analytics/beta', { symbol, benchmark: bench, interval: iv, bars: w.length, end_offset: w.offset }), [symbol, bench, iv, w.length, w.offset]);
   const d = r.data;
   return (
     <div>
       <div className="toolbar">
         <BenchPick value={bench} onChange={setBench} />
         {['1D', '1W', '1M'].map((x) => <button key={x} className={`tb ${iv === x ? 'on' : ''}`} onClick={() => setIv(x)}>{x}</button>)}
-        <span className="lbl">BARS</span>
-        <select className="inp" value={bars} onChange={(e) => setBars(+e.target.value)}>{[104, 250, 500, 1000, 2000].map((x) => <option key={x}>{x}</option>)}</select>
       </div>
+      <WindowSlider label="BARS" value={w} onChange={setW} min={60} max={2000} step={10} maxOffset={1000} />
       {r.loading && <Loading />}
       <ErrorBox error={r.error || d?.error} />
       {d && !d.error && (

@@ -121,7 +121,7 @@ export function COV() {
                 return [
                   hdr ? <tr key={'g' + x.gics_group}><td colSpan={9} className="l yellow" style={{ background: '#111' }}>{x.gics_group || '（GICS 未設定）'}</td></tr> : null,
                   <tr key={x.ticker}>
-                    <td className="l amber" style={{ cursor: 'pointer' }} onClick={() => setSecurity(x.symbol)}>{x.ticker}</td>
+                    <td className="l amber" style={{ cursor: 'pointer' }} title="個別銘柄ページ（STK）" onClick={() => { setSecurity(x.symbol); run('STK', x.symbol); }}>{x.ticker}</td>
                     <td className="l" style={{ whiteSpace: 'nowrap' }}>
                       <button className="tb" title="XLS（ターミナル内で表示・編集）" onClick={() => run('XLS', x.symbol)}>XLS</button>
                       <button className="tb" title="Excel で開く（無ければモデルを作成）" onClick={() => act('EXCEL', () => api.post(`/coverage/${x.ticker}/excel`, {}), (y) => toast(y.created ? `作成: ${y.created}` : `Excel: ${y.file?.name}`))}>Excel</button>

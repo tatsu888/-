@@ -145,6 +145,17 @@ async def run_once(source: str | None = None) -> dict[str, Any]:
                              "risk_free": rf.get("TVC:JP10Y" if s.startswith(("TSE:", "OSE:")) else "TVC:US10Y"),
                              "mcap_usd": mc * r if mc and r else None}
             await _enrich(inputs, syms, scan, series, source, errors)
+            try:  # macro side: style-factor returns from the same universe (Notion 04.4 list)
+                from .api_factors import build_from
+                mk = await S.history("TVC:TOPIX", "1D", 800, source)
+                build_from({s: series[s] for s in syms if s in series}, scan, mk, source)
+            except Exception as e:  # noqa: BLE001
+                errors["factor library"] = str(e)
+            try:  # FLOW: daily ETF share counts → real creations / redemptions accumulate over time
+                from .api_factors import flows_record
+                await flows_record()
+            except Exception as e:  # noqa: BLE001
+                errors["flow recorder"] = str(getattr(e, "detail", e))
             snap = T.evaluate(inputs, gl if not gl.get("error") else None, _scorecard_summary())
             snap["themes"], snap["sectors"] = await _themes_and_sectors(source, errors)
             snap.pop("rules", None)

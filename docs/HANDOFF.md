@@ -38,6 +38,7 @@
 | 業績予想ハーネス MODEL（A〜G の 7 層、明細行の作り方 18 種、3 表、DCF／倍率法／DDM／RIM、シナリオ、感応度、モンテカルロ、検証チェック、ハッシュ） | ✅ テスト済み | サンプルの JSON は架空の数値 |
 | チャートの追加指標（一目・ストキャス・ATR・PNG）、指標アラート、ペアトレードのバックテスト、約定記録、TEAR、SCRN | ✅ | |
 | CYCL（フーリエ）、MACRO（景気局面）、PROP（認識伝播マップ）、MRGN（信用残の取り込み） | ✅ ロジックはテスト済み、SIM で画面確認済み | マクロ系の記号の一部は未検証。MRGN は JPX のファイルを手で取り込む |
+| **STK**（個別銘柄ページ：要因分解・信用残・需給・三位一体・決算・ファイル）、**FCTR**（Notion 04.4 のファクター計測）、**FLOW**（グローバル資金フロー）、全分析の**時間ウィンドウのスライダー** | ✅ テスト済み、SIM で画面確認済み | FLOW の ETF・発行済口数は未検証。スタイル・ファクターはカバレッジが 15 銘柄以上で計算 |
 | **COV**（Notion の銘柄マスタ → カバレッジ、決算日 → Notion の四半期ページ、セクター／ティッカー別フォルダ（OneDrive 可）、銘柄ごとの Excel・レポート） | ✅ テスト済み（Notion API はモック）、SIM で画面確認済み | **実 Notion への書き込みは未実行**（トークン未設定）。最初は PREVIEW で確認してから APPLY |
 | **分析の拡張**：XRAY（リターン分解・意図しないベット）、RRG（セクター回転）、THEME（テーマ・バスケット）、PFND（ペア候補）、TRAK（ベイズ勝率） | ✅ テスト済み、SIM で画面確認済み | 業種 ETF の記号は未検証。テーマのテンプレートは業種 ETF による代用 |
 | **AUTO 三位一体**（ルールベース・自動更新、TRIN の既定タブ） | ✅ テスト済み、SIM で自動実行を確認 | スキャナーが使えないと F のルール採点は N/A |
@@ -45,7 +46,7 @@
 | TXT（書き起こし：Lazy Prices 差分、トーン、Q&A 回避度、出典必須の AI ブリーフ検証） | ✅ | 外部通信なし |
 | TRND（Google Trends、X、StockTwits） | ⚠️ 実装済み・実通信は未検証 | X は `X_BEARER_TOKEN`（有料）が必要 |
 | 自己診断（`python -m app.diagnose`、SRC の RUN DIAGNOSTICS） | ✅ | 実ネットワーク環境で最初に実行する |
-| テスト | ✅ backend 132 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
+| テスト | ✅ backend 150 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
 
 ## 3. 起動方法
 
@@ -85,6 +86,10 @@ backend/app/
   api_framework.py   /api/framework/*（投資の三位一体）
   api_trinity.py     /api/trinity/*（AUTO 三位一体の実行・スケジューラ・保存）
   trinity_auto.py    AUTO 三位一体のルール（純関数）
+  api_factors.py     /api/factors/*, /api/stock/*/page, /api/flows（FCTR・STK・FLOW）
+  factorlib.py       ファクター・ライブラリ（マクロ・セクター・スタイル）と要因分解
+  flows.py           資金フローの代理（CMF・OBV・売買代金・相対強度）と設定・解約
+  window.py          時間ウィンドウ（as-of で全系列を同じ日付で切る）
   api_coverage.py    /api/coverage/*（COV）
   coverage.py        四半期ラベル（ATLAS 規則）、フォルダ名・レイアウト、ルールベースのレポート
   notion_api.py      Notion REST クライアント（銘柄マスタ、MICRO の個社ページ、ページ作成）
@@ -136,7 +141,7 @@ frontend/src/
   functions/         GP, Monitor（W/WEI…）, Screener（MOST/HMAP）, Security（DES/TA/N/NOTE）,
                      Misc（ECO/ALRT/PORT+RISK+BLOTTER/SRC/HELP）, Analytics（FACT/LAG/CORR/BT）, Quant（BETA/SPRD/SEAS/EVT/RV/EARN/OV）,
                      XLS + XlsTools, MODEL + ModelTools, Reports（TEAR/SCRN）, Research（CYCL/PROP/MACRO/MRGN/TXT/TRND）,
-                     Trinity（TRIN/SCORE/KELLY/RULE/PAIR/SHRT/CHIP/GATE/GLQ）, Insight（XRAY/RRG/THEME/PFND/TRAK）
+                     Trinity（TRIN/SCORE/KELLY/RULE/PAIR/SHRT/CHIP/GATE/GLQ）, Insight（XRAY/RRG/THEME/PFND/TRAK）, Coverage（COV）, Stock（STK/FCTR）, Flows（FLOW）, components/WindowSlider
 models/examples/     ハーネスのサンプル spec
 scripts/             setup / start / dev / test（sh と ps1）
 docs/                本資料群

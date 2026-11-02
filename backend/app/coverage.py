@@ -219,6 +219,12 @@ def build_report(ctx: dict[str, Any]) -> dict[str, Any]:
         secs.append({"heading": "リターン分解（XRAY）", "lines": [
             f"マーケット {_f(s.get('market', 0) * 100, 0, True)} ／ スタイル・マクロ {_f(s.get('style', 0) * 100, 0, True)} ／ セクター {_f(s.get('sector', 0) * 100, 0, True)} ／ 個別 {_f(s.get('idio', 0) * 100, 0, True)}",
             f"→ {x.get('verdict')}"] + [f"・{c['factor']}: β {_f(c['beta'], 3)}（t {_f(c['t'], 1)}）" for c in (x.get("coefficients") or [])[:5]]})
+    mg = ctx.get("margin")
+    if mg and mg.get("latest"):
+        L = mg["latest"]
+        secs.append({"heading": "信用残（JPX 週次）", "lines": [
+            f"{L.get('date')}: 信用倍率 {_f(L.get('ratio'))}（自己の過去 {mg.get('weeks')} 週で {_f(mg.get('ratio_percentile'), 0)} pctl）",
+            f"買残 {_f(L.get('long'), 0)} ／ 売残 {_f(L.get('short'), 0)}　買残÷20日出来高 {_f(mg.get('buy_days'), 1)} 日"]})
     ch = ctx.get("chip")
     if ch:
         secs.append({"heading": "需給（CHIP）", "lines": [f"ゾーン: {ch.get('zone')}"] + [f"・{s['signal']}" for s in ch.get("top", []) + ch.get("bottom", []) if s.get("on")]})

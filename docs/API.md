@@ -97,6 +97,20 @@
 | GET | /transcripts/{symbol}/brief_pack?id | 出典番号つき SOURCE と規則を含む AI 用プロンプト |
 | POST | /transcripts/{symbol}/validate_brief `{brief, id?}` | AI の回答の出典・数字を検証 |
 
+## ファクター・個別銘柄・資金フロー（/api）
+
+| Method | Path | 説明 |
+|---|---|---|
+| POST | /factors/build | スタイル・ファクターをいま再計算（通常は AUTO 実行時） |
+| GET | /factors/library?end_offset | スタイル・マクロ・セクター・ファクターの成績（1D〜6M、z） |
+| GET | /factors/attribution/{symbol}?window&est&end_offset | 株価の要因分解（寄与、個社要因、判定、累積系列） |
+| GET | /stock/{symbol}/page | 個別銘柄ページ（信用残・需給・AUTO・評点・テーマ・書き起こし・ファイル・同業） |
+| GET | /stock/{symbol}/report_file?name | 保存済みレポートの本文 |
+| GET | /flows?lens=ASSET\|COUNTRY\|SECTOR_US\|SECTOR_JP\|STYLE_US\|STYLE_JP&window&end_offset | 資金フローの代理・設定解約・読み |
+| POST | /flows/record | ETF の発行済口数を記録（AUTO 実行時にも記録） |
+
+時点（as-of）のパラメータ：`end_offset`（営業日）を `/analytics/beta`・`/analytics/correlation`・`/insight/xray`・`/insight/xray/book`・`/insight/themes/{id}/analyze`（＋`lookback`）・`/insight/pairs/screen`（＋`lookback`）・`/framework/pair`（＋`sigma_window`・`corr_window`）・`/macro/growth_liquidity` に、`end_weeks`（週）と `n`（平滑化）を `/insight/rrg` に追加。
+
 ## カバレッジ（/api/coverage）— [COVERAGE.md](COVERAGE.md)
 
 書き込み系（`/notion/earnings`、`/folders`）は `apply: false` で計画だけを返す（dry run）。

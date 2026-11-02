@@ -39,10 +39,14 @@ async def technicals(symbol: str, interval: str = "1D", source: str | None = SOU
 
 @router.get("/correlation")
 async def correlation(symbols: str, interval: str = "1D", bars: int = Query(250, ge=10, le=2000),
-                      source: str | None = SOURCE):
+                      end_offset: int = Query(0, ge=0, le=2000), source: str | None = SOURCE):
+    from .window import cut_series
+
     iv = interval_or_400(interval)
-    series, errors = await _many(symbols_or_400(symbols, 30), iv, bars, source)
-    return {"interval": iv, **analytics.correlation_matrix(series), "errors": errors}
+    series, errors = await _many(symbols_or_400(symbols, 30), iv, bars + end_offset, source)
+    series, cut = cut_series(series, end_offset)
+    series = {k: v[-bars:] for k, v in series.items()}
+    return {"interval": iv, **analytics.correlation_matrix(series), "errors": errors, "asof": cut}
 
 
 @router.get("/performance")
@@ -146,11 +150,15 @@ async def leadlag_theme(theme_id: str, residualize: bool = True, max_lag: int = 
 # ---- quant tools (BETA / SPRD / SEAS / EVT / PORT RISK / RV / EARN) -------
 @router.get("/beta")
 async def beta(symbol: str, benchmark: str = "SP:SPX", interval: str = "1D", bars: int = Query(500, ge=30, le=3000),
-               source: str | None = SOURCE):
+               end_offset: int = Query(0, ge=0, le=2000), source: str | None = SOURCE):
+    from .window import cut_series
+
     iv = interval_or_400(interval)
-    series, errors = await _many([symbol, benchmark], iv, bars, source)
+    series, errors = await _many([symbol, benchmark], iv, bars + end_offset, source)
     if len(series) < 2:
         raise HTTPException(502, f"history unavailable: {errors}")
+    series, _ = cut_series(series, end_offset, symbol)
+    series = {k: v[-bars:] for k, v in series.items()}
     res = quant.beta_regression(series[symbol], series[benchmark], analytics.periods_per_year(iv))
     return {"symbol": symbol, "benchmark": benchmark, "interval": iv, **res}
 

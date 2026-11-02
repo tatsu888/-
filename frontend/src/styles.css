@@ -232,3 +232,12 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .theme-form textarea { height: 36px; resize: vertical; }
 .t.nowrap td, .t.nowrap th { white-space: nowrap; }
 .report-md { white-space: pre-wrap; font-size: 11px; line-height: 1.5; max-height: 560px; overflow: auto; margin: 0 6px 6px; color: #ddd; }
+
+/* ---- window sliders / STK ---- */
+.wslider { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 3px 6px; }
+.wslider input[type=range] { width: 160px; accent-color: #ffa028; }
+.wslider .wval { min-width: 56px; font-size: 12px; }
+.tb.mini { padding: 0 4px; font-size: 10px; line-height: 16px; }
+.hbar2 { position: relative; height: 10px; background: #111; }
+.hbar2::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #444; }
+.hbar2 > span { position: absolute; top: 0; height: 100%; display: block; }

@@ -149,3 +149,15 @@
 ### 未確認
 - 実 Notion API（トークン未設定）。最初は PREVIEW で計画を確認すること
 
+## 2026-11-02 — Claude Code（R29〜R31・R35・R36：スライダー、FLOW、ファクター、STK）
+
+### やったこと
+- `window.py`：時点（as-of）で全系列を同じ日付で切る。BETA・CORR・XRAY・RRG（週）・THEME・PFND・PAIR・GLQ のエンドポイントに `end_offset`（と期間）を追加。`components/WindowSlider.tsx`（期間＋時点、プリセット、ドラッグ後に確定）を各画面に
+- `factorlib.py`・`api_factors.py`：Notion 04.4 のファクター・ライブラリ（マクロ・セクター・カバレッジから作るスタイル）、AUTO 実行時に自動計算。`FCTR` 画面。株価の要因分解（β は窓の前で推定、個社要因 vs ファクター・スタイル）
+- `STK`（個別銘柄ページ）：要因分解（スライダー）、信用残（JPX 週次）、需給、三位一体、決算・書き起こし、Excel・レポート、同業。COV のティッカーから開く。レポートに信用残を追加
+- `flows.py`：資金フロー（アセットクラス・カントリー・セクター・スタイル）、AUTO 実行時に ETF の発行済口数を記録（実際の設定・解約）。`FLOW` 画面
+- テスト：`test_factorlib.py` 4、`test_window.py` 2、`test_flows.py` 4（backend 計 150 件）。SIM で STK・FCTR・FLOW・スライダーを確認
+
+### 未確認
+- 実データでのスタイル・ファクター（カバレッジ 336 銘柄の履歴読み込み時間）、FLOW の ETF 記号と発行済口数の列
+

@@ -272,22 +272,30 @@ class PairReq(BaseModel):
     borrow_ok: bool | None = None
     spread_class: str | None = None
     lookback: int = Field(500, ge=80, le=3000)
+    end_offset: int = Field(0, ge=0, le=2000)
+    sigma_window: int = Field(21, ge=10, le=126)
+    corr_window: int = Field(60, ge=20, le=252)
     source: str | None = None
 
 
 @router.post("/pair")
 async def pair(req: PairReq):
     bench = req.bench or bench_for(req.long)
-    series, errors = await _many([req.long, req.short, bench], "1D", req.lookback, req.source)
+    from .window import cut_series
+
+    series, errors = await _many([req.long, req.short, bench], "1D", req.lookback + req.end_offset, req.source)
     if req.long not in series or req.short not in series:
         raise HTTPException(502, f"history unavailable: {errors}")
+    series, cut = cut_series(series, req.end_offset, req.long)
+    series = {k: v[-req.lookback:] for k, v in series.items()}
     closes = {s: quant.closes_by_date(b) for s, b in series.items()}
     try:
-        m = F.pair_metrics(closes, req.long, req.short, req.w_long, -abs(req.w_short), bench if bench in closes else None)
+        m = F.pair_metrics(closes, req.long, req.short, req.w_long, -abs(req.w_short), bench if bench in closes else None,
+                           req.sigma_window, req.corr_window)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     suit = F.pair_suitability(m, req.earnings_dirs, req.borrow_ok, req.spread_class)
-    return {"long": req.long, "short": req.short, "bench": bench, **m, **suit, "errors": errors}
+    return {"long": req.long, "short": req.short, "bench": bench, **m, **suit, "errors": errors, "asof": cut}
 
 
 # ---- short models -------------------------------------------------------------

@@ -100,6 +100,9 @@ Yahoo への変換は `backend/app/providers/yahoo.py` の `to_yahoo()` で行�
 - スタイル・マクロ因子：`TSE:2516`、`TSE:1489`、`NASDAQ:SOXX`、`AMEX:FXI`、`AMEX:IWM` `IWD` `IWF`、`BATS:MTUM` `USMV`
 - TradingView のセクター名 → 業種 ETF の対応は `xray.py` の `_JP_BY_SECTOR` / `_US_BY_SECTOR`（近似）
 
+### 資金フロー（FLOW）の ETF（未検証）
+`NASDAQ:ACWI` `AMEX:SPY` `AMEX:EFA` `AMEX:EEM` `AMEX:EWJ` `NASDAQ:TLT` `NASDAQ:IEF` `AMEX:BIL` `AMEX:LQD` `AMEX:HYG` `AMEX:TIP` `NASDAQ:EMB` `AMEX:GLD` `AMEX:DBC` `AMEX:USO` `AMEX:VNQ` `AMEX:UUP` `NASDAQ:IBIT`、国別 `AMEX:FXI` `AMEX:ASHR` `AMEX:EWH` `AMEX:EWT` `AMEX:EWY` `BATS:INDA` `AMEX:EWA` `AMEX:EWU` `AMEX:EWG` `AMEX:EWQ` `AMEX:VGK` `AMEX:EWC` `AMEX:EWZ` `AMEX:EWW` `AMEX:VNM`、スタイル `BATS:MTUM` `BATS:VLUE` `BATS:QUAL` `BATS:USMV` `AMEX:SPHB` `AMEX:SPLV` `AMEX:VYM` `AMEX:RSP`、日本 `TSE:1306` `TSE:1321` `TSE:1489` `TSE:1591` `TSE:2516`。発行済口数はスキャナーの `total_shares_outstanding`（ETF で取れるかは未検証）。
+
 ## ネットワーク環境のメモ
 
 開発に使ったクラウドコンテナでは、外向き通信がポリシーで制限されていました（パッケージレジストリのみ許可）。TradingView と Yahoo のホストを許可する場合は、環境設定の Network access で、次のドメインを Allowed domains に追加します（https://code.claude.com/docs/en/cloud-environments#network-access）。
