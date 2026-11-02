@@ -27,8 +27,8 @@ def test_move_root_copies_verifies_and_switches(tmp_path):
         assert c.post("/api/coverage/move_root", json={"to": str(old / "inside")}).status_code == 400
         # PREVIEW writes nothing
         plan = c.post("/api/coverage/move_root", json={"to": str(new)}).json()
-        # 2 markers + model + calendar + notes.md (the lock file is skipped)
-        assert plan["apply"] is False and plan["files"] == 5 and plan["n_conflicts"] == 0 and not new.exists()
+        # 2 markers + model + calendar + its daily backup + notes.md (the lock file is skipped)
+        assert plan["apply"] is False and plan["files"] == 6 and plan["n_conflicts"] == 0 and not new.exists()
         assert "_terminal" in plan["top"] and any(t.startswith("GICS4530_") for t in plan["top"])
         # APPLY: copy → verify → switch
         res = c.post("/api/coverage/move_root", json={"to": str(new), "apply": True}).json()

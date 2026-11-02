@@ -94,8 +94,8 @@ const CHECK_POST = ['結果 vs 予想（サプライズ）', 'ガイダンスの
 const stateCls = (s?: string) => (s === '決算待ち' ? 'yellow' : s === '期中' ? 'amber' : 'muted');
 
 /** Quarter pages of one company — the terminal's earnings calendar is the system of record (not Notion). */
-function Quarters({ ticker }: { ticker: string }) {
-  const { toast } = useTerminal();
+function Quarters({ ticker, symbol }: { ticker: string; symbol: string }) {
+  const { toast, run } = useTerminal();
   const r = useAsync(() => api.get<any>(`/earnings/${ticker}`), [ticker]);
   const [view, setView] = useState<any>(null);   // latest server response (PUT returns the company view)
   const [sel, setSel] = useState<string | null>(null);
@@ -161,6 +161,7 @@ function Quarters({ ticker }: { ticker: string }) {
             placeholder="この四半期のメモ（注目点・結果・ガイダンス）" onChange={(e) => setNotes(e.target.value)} />
           <button className="tb mini" disabled={notes === null || notes === (q.notes ?? '')} onClick={() => put({ notes }).then(() => setNotes(null))}>メモを保存</button>
           {notes !== null && notes !== (q.notes ?? '') && <span className="yellow" style={{ fontSize: 10 }}> 未保存</span>}
+          <Docs ticker={ticker} symbol={symbol} qid={q.id} onTxt={() => run('TXT', symbol)} />
         </div>
       )}
       {qs.length > 0 && (
@@ -181,6 +182,28 @@ function Quarters({ ticker }: { ticker: string }) {
         </>
       )}
       <Reactions rx={rx} onPick={(id) => { setSel(id); setNotes(null); setPin(''); }} />
+    </div>
+  );
+}
+
+/** Files in the quarter folder (短信・資料・書き起こし…): open, or import a text transcript into TXT. */
+function Docs({ ticker, symbol, qid, onTxt }: { ticker: string; symbol: string; qid: string; onTxt: () => void }) {
+  const { toast } = useTerminal();
+  const f = useAsync(() => api.get<any>(`/earnings/${ticker}/${qid}/files`), [ticker, qid]);
+  const files: any[] = f.data?.files || [];
+  const post = async (path: string, name: string, ok: (x: any) => void) => { try { ok(await api.post<any>(`/earnings/${ticker}/${qid}/files/${path}`, { name })); } catch (e: any) { toast(e.message); } };
+  if (!f.data?.exists) return <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>資料: 四半期フォルダを作ると、置いたファイル（短信・資料・書き起こし）がここに出る</div>;
+  return (
+    <div style={{ marginTop: 4, fontSize: 11 }}>
+      <span className="muted">資料（四半期フォルダ）</span> <button className="tb mini" onClick={() => f.reload()}>⟳</button>
+      {!files.length && <span className="muted"> まだない — {symbol} の四半期フォルダに置く</span>}
+      {files.map((x) => (
+        <div key={x.name}>
+          <button className="tb mini" onClick={() => post('open', x.name, (y) => toast(y.opened ? `開く: ${y.path}` : y.path))}>開く</button>{' '}
+          {x.name} <span className="muted">{x.size >= 1e6 ? `${(x.size / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(x.size / 1e3))} KB`}</span>
+          {x.text && <> <button className="tb mini" title="説明会の書き起こしとして TXT に取り込み（トーン・前の期からの言葉の変化・回避度）" onClick={() => post('transcript', x.name, (y) => toast(`TXT に取り込み: ${y.period}（${y.chars} 文字、${y.encoding}）`))}>書き起こしとして取り込む</button> <button className="tb mini" onClick={onTxt}>TXT</button></>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -286,7 +309,7 @@ export function STK({ symbol }: { symbol: string }) {
                 {d.chip.crowding?.days_of_volume != null && <div className="muted">保有日数 {fmtNum(d.chip.crowding.days_of_volume, 1)}</div>}
               </div> : <div className="pad muted">—</div>}
             </div>
-            {cv && <Quarters key={cv.ticker} ticker={cv.ticker} />}
+            {cv && <Quarters key={cv.ticker} ticker={cv.ticker} symbol={symbol} />}
             <div className="box" style={{ margin: 6 }}>
               <h4>決算・書き起こし</h4>
               <div className="pad">

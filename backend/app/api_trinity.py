@@ -161,11 +161,23 @@ async def run_once(source: str | None = None) -> dict[str, Any]:
                         await S.hub.broadcast({"type": "earnings", "changes": er["changes"][:20]})
             except Exception as e:  # noqa: BLE001
                 errors["earnings calendar"] = str(e)
+            ealerts: list[dict[str, Any]] = []
             try:  # 決算時の株価反応: past announcement dates detected from volume + typical move (real data only)
                 from .api_earnings import reactions_all
-                await reactions_all(series, (await S.provider(source)).name, source)
+                ealerts += (await reactions_all(series, (await S.provider(source)).name, source)).get("big", [])
             except Exception as e:  # noqa: BLE001
                 errors["earnings reactions"] = str(e)
+            try:  # 決算アラート: tomorrow's earnings (once a day) + unusually large reactions
+                from .api_earnings import alerts_due, load as eload2, save as esave2
+                ec2 = eload2()
+                due = alerts_due(ec2)
+                if due:
+                    esave2(ec2)
+                ealerts = due + ealerts
+                if ealerts and S.hub:
+                    await S.hub.broadcast({"type": "earnings_alert", "items": ealerts[:20]})
+            except Exception as e:  # noqa: BLE001
+                errors["earnings alerts"] = str(e)
             try:  # FLOW: daily ETF share counts → real creations / redemptions accumulate over time
                 from .api_factors import flows_record
                 await flows_record()
@@ -188,6 +200,11 @@ async def run_once(source: str | None = None) -> dict[str, Any]:
             _state.update(last_run=snap["generated_at"], last_error=None)
             if changes and S.hub:
                 await S.hub.broadcast({"type": "trinity", "changes": changes[:20], "at": snap["generated_at"]})
+            try:  # BRIEF: the first run at or after the configured time makes the day's morning brief
+                from .api_brief import maybe_auto
+                await maybe_auto(source)
+            except Exception:  # noqa: BLE001
+                log.warning("morning brief failed", exc_info=True)
             return snap
         except Exception as e:
             _state["last_error"] = f"{type(e).__name__}: {e}"

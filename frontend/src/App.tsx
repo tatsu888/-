@@ -25,6 +25,7 @@ import { PFND, RRG, THEME, TRAK, XRAY } from './functions/Insight';
 import { COV } from './functions/Coverage';
 import { FCTR, STK } from './functions/Stock';
 import { FLOW } from './functions/Flows';
+import { BRIEF } from './functions/Brief';
 
 const DEFAULT_PANELS: PanelState[] = [
   { id: 'p1', fn: 'GP' },
@@ -119,6 +120,21 @@ export default function App() {
       const msg = `TRIN AUTO: ${m.changes.slice(0, 4).map((c: any) => `${c.symbol} ${c.from ?? ''}→${c.to}`).join(' · ')}${m.changes.length > 4 ? ` (+${m.changes.length - 4})` : ''}`;
       toast(msg);
     }
+    if (m.type === 'earnings' && m.changes?.length) {
+      toast(`決算日の更新: ${m.changes.slice(0, 3).map((c: any) => `${c.ticker} ${c.qid ?? ''} → ${c.to}`).join(' · ')}${m.changes.length > 3 ? ` (+${m.changes.length - 3})` : ''}`);
+    }
+    if (m.type === 'earnings_alert' && m.items?.length) {
+      const msg = m.items.slice(0, 4).map((x: any) => x.kind === '明日決算'
+        ? `明日決算 ${x.ticker} ${x.name ?? ''} ${x.label}（${x.status}${x.typical ? `、通常 ±${(x.typical * 100).toFixed(1)}%` : ''}）`
+        : `決算反応 ${x.ticker} ${x.move >= 0 ? '+' : ''}${(x.move * 100).toFixed(1)}%（通常の ${x.times.toFixed(1)} 倍）`).join(' · ');
+      toast(msg);
+      try {
+        if (Notification?.permission === 'granted') new Notification('Analyst Terminal — 決算', { body: msg });
+      } catch {
+        /* ignore */
+      }
+    }
+    if (m.type === 'brief') toast(`朝のブリーフ ${m.date} を作成しました（BRIEF）`);
   });
 
   const setSecurity = useCallback((s: string) => setSecurityRaw(s), []);
@@ -245,6 +261,7 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'THEME': return <THEME />;
     case 'PFND': return <PFND />;
     case 'TRAK': return <TRAK />;
+    case 'BRIEF': return <BRIEF />;
     case 'COV': return <COV />;
     case 'STK': return <STK key={symbol} symbol={symbol} />;
     case 'FCTR': return <FCTR />;

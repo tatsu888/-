@@ -78,9 +78,27 @@ def load() -> dict[str, Any]:
     return c
 
 
+BACKUP_KEEP = 30
+
+
+def _backup_daily(p: Path) -> None:
+    """Before the first write of each day, keep the calendar as it was (backups/calendar-YYYY-MM-DD.json, 30 days)."""
+    if not p.exists():
+        return
+    d = p.parent / "backups"
+    dst = d / f"calendar-{dt.date.today().isoformat()}.json"
+    if dst.exists():
+        return
+    d.mkdir(exist_ok=True)
+    shutil.copy2(p, dst)
+    for old in sorted(d.glob("calendar-????-??-??.json"))[:-BACKUP_KEEP]:
+        old.unlink(missing_ok=True)
+
+
 def save(c: dict[str, Any]) -> None:
     p = cal_path()
     p.parent.mkdir(parents=True, exist_ok=True)
+    _backup_daily(p)
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
     tmp.replace(p)
@@ -457,7 +475,29 @@ def reactions_from_bars(c: dict[str, Any], t: str, bars: list[dict[str, Any]], m
             c["companies"].setdefault(t, {})["reaction"] = {**new, "at": _now()}
             changed = True
     return {"ticker": t, "rows": rows, "summary": summ, "provider": provider, "real": real, "detected_now": detected,
-            "changed": changed, "market": bool(mkt)}
+            "changed": changed, "market": bool(mkt), "last_day": ds[-1] if ds else None}
+
+
+BIG_MOVE = 2.0     # an earnings reaction of at least 2× the company's typical move is announced
+
+
+def big_reactions(c: dict[str, Any], t: str, res: dict[str, Any]) -> list[dict[str, Any]]:
+    """Reactions on the latest trading day that are ≥ BIG_MOVE × the typical move (needs ≥ 4 past reactions)."""
+    s = res["summary"]
+    if (s.get("n") or 0) < 4 or not s.get("avg_abs"):
+        return []
+    sent = c["config"].setdefault("alerted_big", [])
+    out = []
+    for x in res["rows"]:
+        mv = x.get("x1") if x.get("x1") is not None else x.get("r1")
+        k = f"{t}:{x['id']}"
+        if x.get("reaction_day") == res["last_day"] and mv is not None and abs(mv) >= BIG_MOVE * s["avg_abs"] and k not in sent:
+            out.append({"kind": "大きな決算反応", "ticker": t, "name": (c["companies"].get(t) or {}).get("name"), "id": x["id"],
+                        "label": x["label"], "move": mv, "typical": s["avg_abs"], "times": abs(mv) / s["avg_abs"],
+                        "reaction_day": x["reaction_day"]})
+            sent.append(k)
+    c["config"]["alerted_big"] = sent[-200:]
+    return out
 
 
 async def _market_bars(symbol: str, source: str | None, cache: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -477,17 +517,19 @@ async def reactions_all(series: dict[str, list[dict[str, Any]]], provider: str, 
         return {"skipped": f"{provider}: 検出と統計は実データのときだけ保存"}
     c = load()
     cache: dict[str, list[dict[str, Any]]] = {}
-    n, changed = 0, False
+    n, changed, big = 0, False, []
     for it in _coverage_items():
         bars = series.get(it["symbol"])
         if bars and it["ticker"] in c["quarters"]:
             r = reactions_from_bars(c, it["ticker"], bars, await _market_bars(it["symbol"], source, cache), provider)
             n, changed = n + r["detected_now"], changed or r["changed"]
+            b = big_reactions(c, it["ticker"], r)
+            big, changed = big + b, changed or bool(b)
     if changed:
         save(c)
     if n:   # estimates of later quarters (前年同期 + 364, typical lag) are re-based on the detected dates
         await refresh(load(), use_jpx=False, use_tv=False)
-    return {"detected": n}
+    return {"detected": n, "big": big}
 
 
 def _ics_text(s: str) -> str:
@@ -506,6 +548,41 @@ def _ics_fold(line: str) -> str:
             cur, n = cur + ch, n + b
     out.append(cur)
     return "\r\n".join(out)
+
+
+def window_rows(c: dict[str, Any], back: int, ahead: int, today: dt.date | None = None) -> list[dict[str, Any]]:
+    """Every quarter whose earnings date is within [today - back, today + ahead] (``days`` < 0 = past), any status."""
+    today = today or dt.date.today()
+    names = {x["ticker"]: x for x in _coverage_items()}
+    rows = []
+    for t, qs in c["quarters"].items():
+        for q in qs.values():
+            e = q.get("earnings") or {}
+            if not e.get("date"):
+                continue
+            d = (dt.date.fromisoformat(e["date"]) - today).days
+            if -back <= d <= ahead:
+                rows.append({"ticker": t, "name": (names.get(t) or {}).get("name") or c["companies"].get(t, {}).get("name"),
+                             "id": q["id"], "label": q["label"], "label_ja": q["label_ja"], "date": e["date"], "days": d,
+                             "status": e["status"], "source": e.get("source")})
+    rows.sort(key=lambda r: (r["date"], r["ticker"]))
+    return rows
+
+
+def alerts_due(c: dict[str, Any], today: dt.date | None = None) -> list[dict[str, Any]]:
+    """Tomorrow's earnings with a real date (確定・予定・手入力), each announced once (remembered in config)."""
+    today = today or dt.date.today()
+    sent = c["config"].get("alerted") or {}
+    keys = set(sent.get("keys") or []) if sent.get("date") == today.isoformat() else set()
+    out = []
+    for r in window_rows(c, back=0, ahead=1, today=today):
+        k = f"{r['ticker']}:{r['id']}"
+        if r["days"] == 1 and r["status"] in ("確定", "予定", "手入力") and k not in keys:
+            mv = ((c["companies"].get(r["ticker"]) or {}).get("reaction") or {}).get("avg_abs")
+            out.append({"kind": "明日決算", **r, "typical": mv})
+            keys.add(k)
+    c["config"]["alerted"] = {"date": today.isoformat(), "keys": sorted(keys)}
+    return out
 
 
 # ---- endpoints ----------------------------------------------------------------------------------
@@ -547,19 +624,7 @@ async def jpx_import(file: UploadFile = File(...)):
 @router.get("/calendar")
 async def calendar_ep(days: int = 90):
     c = load()
-    today = dt.date.today()
-    rows = []
-    names = {x["ticker"]: x for x in _coverage_items()}
-    for t, qs in c["quarters"].items():
-        for q in qs.values():
-            e = q.get("earnings") or {}
-            if e.get("date"):
-                d = (dt.date.fromisoformat(e["date"]) - today).days
-                if -3 <= d <= days and e.get("status") != "発表済":
-                    rows.append({"ticker": t, "name": (names.get(t) or {}).get("name") or c["companies"].get(t, {}).get("name"),
-                                 "id": q["id"], "label": q["label"], "label_ja": q["label_ja"], "date": e["date"], "days": d,
-                                 "status": e["status"], "source": e.get("source")})
-    rows.sort(key=lambda r: (r["date"], r["ticker"]))
+    rows = [r for r in window_rows(c, back=3, ahead=days) if r["status"] != "発表済"]
     return {"rows": rows, "last_refresh": c["config"].get("last_refresh"), "jpx_fetched": c["jpx"].get("fetched")}
 
 
@@ -584,6 +649,39 @@ async def calendar_ics(days: int = 180, estimates: bool = True):
     body = "\r\n".join(_ics_fold(x) for x in lines) + "\r\n"
     return Response(body, media_type="text/calendar; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="earnings.ics"'})
+
+
+@router.get("/backups")
+async def backups_ep():
+    d = cal_path().parent / "backups"
+    files = sorted(d.glob("calendar-*.json"), reverse=True) if d.is_dir() else []
+    return {"dir": str(d), "files": [{"name": f.name, "size": f.stat().st_size,
+                                      "mtime": dt.datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds")} for f in files]}
+
+
+class RestoreReq(BaseModel):
+    name: str
+
+
+@router.post("/backups/restore")
+async def restore_ep(req: RestoreReq):
+    """Replace the calendar by a backup; the current calendar is kept first (calendar-before-restore-<time>.json)."""
+    p = cal_path()
+    d = (p.parent / "backups").resolve()
+    src = (d / req.name).resolve()
+    if not re.fullmatch(r"calendar-[\w\-]+\.json", req.name) or src.parent != d or not src.is_file():
+        raise HTTPException(404, "backup not found")
+    try:
+        json.loads(src.read_text(encoding="utf-8"))
+    except ValueError as e:
+        raise HTTPException(400, f"壊れたバックアップ: {e}") from e
+    if p.exists():
+        shutil.copy2(p, d / f"calendar-before-restore-{dt.datetime.now():%Y%m%d-%H%M%S}.json")
+    shutil.copy2(src, p)
+    c = load()
+    c["log"].append({"at": _now(), "ticker": None, "qid": None, "what": "復元", "from": "", "to": req.name, "source": "手入力"})
+    save(c)
+    return {"restored": req.name, "companies": len(c["companies"])}
 
 
 @router.get("/log")
@@ -699,6 +797,75 @@ async def quarter_ep(ticker: str, qid: str, req: QuarterReq):
     if req.earnings_date == "":
         await refresh(load(), use_jpx=False, use_tv=False, tickers=[t])
     return company_view(load(), t)
+
+
+# ---- quarter documents (files in the quarter folder) ------------------------------------------------
+DOC_SKIP = re.compile(r"^(notes\.md|notes\.conflict-.*\.md|~\$.*|\.~lock\..*|.*\.tmp|\.coverage\.json)$", re.I)
+TEXT_EXT = (".txt", ".md")
+
+
+def _qfolder(t: str, qid: str) -> Path | None:
+    _, stock = _cov_context(t)
+    return quarter_dir(stock, qid) if stock else None
+
+
+def _qfile(t: str, qid: str, name: str) -> Path:
+    f = _qfolder(t, qid)
+    p = (f / name).resolve() if f else None
+    if not p or p.parent != f.resolve() or not p.is_file():
+        raise HTTPException(404, "file not found in the quarter folder")
+    return p
+
+
+@router.get("/{ticker}/{qid}/files")
+async def quarter_files(ticker: str, qid: str):
+    t = ticker.split(":")[-1].upper()
+    f = _qfolder(t, qid)
+    if not f or not f.is_dir():
+        return {"folder": str(f) if f else None, "exists": False, "files": []}
+    files = [{"name": p.name, "size": p.stat().st_size, "ext": p.suffix.lower(), "text": p.suffix.lower() in TEXT_EXT,
+              "mtime": dt.datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds")}
+             for p in sorted(f.iterdir()) if p.is_file() and not DOC_SKIP.match(p.name)]
+    return {"folder": str(f), "exists": True, "files": files}
+
+
+class FileReq(BaseModel):
+    name: str
+
+
+@router.post("/{ticker}/{qid}/files/open")
+async def quarter_file_open(ticker: str, qid: str, req: FileReq):
+    from .api_coverage import _open_path
+
+    p = _qfile(ticker.split(":")[-1].upper(), qid, req.name)
+    return {"path": str(p), "opened": _open_path(p)}
+
+
+@router.post("/{ticker}/{qid}/files/transcript")
+async def quarter_file_transcript(ticker: str, qid: str, req: FileReq):
+    """A text file in the quarter folder (説明会の書き起こし etc.) → TXT (tone, language change vs the previous
+    quarter, evasiveness). Stored under the stock's symbol with the quarter label as the period."""
+    from .api_research import TranscriptReq, transcripts_add
+
+    t = ticker.split(":")[-1].upper()
+    p = _qfile(t, qid, req.name)
+    if p.suffix.lower() not in TEXT_EXT:
+        raise HTTPException(400, "テキスト（.txt / .md）だけ取り込める。PDF はテキストに変換してから")
+    raw = p.read_bytes()
+    for enc in ("utf-8-sig", "cp932"):        # Windows の日本語テキストは Shift_JIS のことがある
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        raise HTTPException(400, "文字コードを判別できない（UTF-8 か Shift_JIS で保存）")
+    it, _ = _cov_context(t)
+    q = (load()["quarters"].get(t) or {}).get(qid)
+    if not it or not q:
+        raise HTTPException(404, "quarter not found")
+    await transcripts_add(it["symbol"], TranscriptReq(period=q["label"], date=(q.get("earnings") or {}).get("date"), title=p.name, text=text))
+    return {"symbol": it["symbol"], "period": q["label"], "chars": len(text), "encoding": enc}
 
 
 @router.post("/{ticker}/{qid}/folder")

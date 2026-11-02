@@ -118,6 +118,7 @@ export function COV() {
               <td className={`l ${String(x.what).includes('不一致') ? 'down' : ''}`}>{x.what}</td><td className="l muted">{String(x.from)}</td><td className="l">→ {String(x.to)}</td><td className="l muted">{x.source}</td></tr>
           ))}</tbody></table>
           {!elog.data?.log?.length && <div className="note">まだ記録がありません。</div>}
+          <Backups onRestored={() => { elog.reload(); r.reload(); }} />
         </div>
       )}
       {pane === 'FOLDERS' && (
@@ -197,6 +198,28 @@ export function COV() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Daily backups of the earnings calendar (30 days) — restore keeps the current calendar first. */
+function Backups({ onRestored }: { onRestored: () => void }) {
+  const { toast } = useTerminal();
+  const b = useAsync(() => api.get<any>('/earnings/backups'), []);
+  const [name, setName] = useState('');
+  const files: any[] = b.data?.files || [];
+  return (
+    <div className="toolbar" style={{ marginTop: 6 }}>
+      <span className="muted">決算カレンダーのバックアップ（毎日・30 日分）</span>
+      <select className="inp" value={name} onChange={(e) => setName(e.target.value)}>
+        <option value="">選ぶ…</option>
+        {files.map((f) => <option key={f.name} value={f.name}>{f.name}（{f.mtime.replace('T', ' ')}）</option>)}
+      </select>
+      <button className="tb" disabled={!name} onClick={async () => {
+        if (!confirm(`${name} に戻します（今のカレンダーは calendar-before-restore-… として残します）。よろしいですか？`)) return;
+        try { await api.post('/earnings/backups/restore', { name }); toast(`復元: ${name}`); setName(''); b.reload(); onRestored(); } catch (e: any) { toast(e.message); }
+      }}>復元</button>
+      <span className="muted" style={{ fontSize: 10 }}>{b.data?.dir}</span>
     </div>
   );
 }

@@ -42,6 +42,8 @@
 | **COV**（Notion の銘柄マスタ → カバレッジ、セクター／ティッカー別フォルダ（OneDrive 可）、銘柄ごとの Excel・レポート） | ✅ テスト済み（Notion API はモック）、SIM で画面確認済み | **実 Notion API は未検証**（トークン未設定）。Notion への決算の書き出しは任意・非推奨 |
 | **決算カレンダーと四半期ページ**（Notion から独立した正本。JPX 確定 → TradingView → 出来高からの検出 → 推定で機械的に埋める、手入力の固定、決算期末月の検証、個社ごとの四半期ページ：メモ（notes.md と双方向同期）・チェックリスト・フォルダ、AUTO で 1 日 1 回更新、.ics 書き出し）[EARNINGS.md](EARNINGS.md) | ✅ テスト済み、SIM で画面確認済み | **JPX のダウンロードは未検証**（この環境では通信拒否）。手動の「JPX 取り込み」で代替可。TradingView の決算日の列も実データでは未検証 |
 | **決算時の株価反応**（反応日・対市場・ドリフト・出来高、通常の値動き。日付が推定の期は出来高の急増から検出） | ✅ テスト済み（合成データ）、SIM で画面確認済み | 実データでの検出精度は未確認（しきい値 2 倍・±10 日）。検出は実データのときだけ保存 |
+| **BRIEF 朝のブリーフ**（市場・マクロ局面・セクター回転・スタイル・AUTO の前日からの変化・決算・ポートフォリオの決算リスク・信用残・データの状態。毎朝 AUTO が作成し .md で保存）[BRIEF.md](BRIEF.md) | ✅ テスト済み、SIM で画面確認済み | 実データでの見え方は未確認。既定の時刻 07:30 |
+| **決算アラート・カレンダーのバックアップ・四半期フォルダの資料**（明日決算・大きな反応の通知、毎日のバックアップと復元、資料の一覧と書き起こしの取り込み） | ✅ テスト済み、SIM で画面確認済み（明日決算の通知を AUTO の実行で確認） | 大きな反応の通知は実データのみ |
 | **OneDrive への移行**（COV の「ルートごと移す」：コピー → 確認 → 切り替え。決算カレンダーもルートの中） | ✅ テスト済み、SIM で画面確認済み | Windows + OneDrive の実機では未確認（開いている Excel はコピーできず、その場合は切り替えない） |
 | **分析の拡張**：XRAY（リターン分解・意図しないベット）、RRG（セクター回転）、THEME（テーマ・バスケット）、PFND（ペア候補）、TRAK（ベイズ勝率） | ✅ テスト済み、SIM で画面確認済み | 業種 ETF の記号は未検証。テーマのテンプレートは業種 ETF による代用 |
 | **AUTO 三位一体**（ルールベース・自動更新、TRIN の既定タブ） | ✅ テスト済み、SIM で自動実行を確認 | スキャナーが使えないと F のルール採点は N/A |
@@ -49,7 +51,7 @@
 | TXT（書き起こし：Lazy Prices 差分、トーン、Q&A 回避度、出典必須の AI ブリーフ検証） | ✅ | 外部通信なし |
 | TRND（Google Trends、X、StockTwits） | ⚠️ 実装済み・実通信は未検証 | X は `X_BEARER_TOKEN`（有料）が必要 |
 | 自己診断（`python -m app.diagnose`、SRC の RUN DIAGNOSTICS） | ✅ | 実ネットワーク環境で最初に実行する |
-| テスト | ✅ backend 165 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
+| テスト | ✅ backend 170 件、frontend 10 件、型チェック、ビルド | `scripts/test.sh` |
 
 ## 3. 起動方法
 
@@ -97,6 +99,8 @@ backend/app/
   coverage.py        フォルダ名・レイアウト、ルールベースのレポート（四半期の計算は earnings.py に委譲）
   earnings.py        決算カレンダーの純関数：FY・四半期（標準／ATLAS 表記）、JPX xlsx の読み取り、機械的な日付の決定、付け替え
   earnings_reaction.py 決算時の株価反応の純関数：反応日（既知／出来高から検出）、対市場、ドリフト、まとめ
+  brief.py           朝のブリーフの純関数（各区分の組み立てと Markdown）
+  api_brief.py       /api/brief/*（データ集め、_terminal/briefs/ への保存、AUTO からの毎朝の作成）
   api_earnings.py    /api/earnings/*（正本 <カバレッジのルート>/_terminal/earnings/calendar.json、JPX、四半期ページ、
                      notes.md との双方向同期、反応、.ics）
   notion_api.py      Notion REST クライアント（銘柄マスタ、MICRO の個社ページ、ページ作成）
@@ -148,7 +152,7 @@ frontend/src/
   functions/         GP, Monitor（W/WEI…）, Screener（MOST/HMAP）, Security（DES/TA/N/NOTE）,
                      Misc（ECO/ALRT/PORT+RISK+BLOTTER/SRC/HELP）, Analytics（FACT/LAG/CORR/BT）, Quant（BETA/SPRD/SEAS/EVT/RV/EARN/OV）,
                      XLS + XlsTools, MODEL + ModelTools, Reports（TEAR/SCRN）, Research（CYCL/PROP/MACRO/MRGN/TXT/TRND）,
-                     Trinity（TRIN/SCORE/KELLY/RULE/PAIR/SHRT/CHIP/GATE/GLQ）, Insight（XRAY/RRG/THEME/PFND/TRAK）, Coverage（COV）, Stock（STK/FCTR）, Flows（FLOW）, components/WindowSlider
+                     Trinity（TRIN/SCORE/KELLY/RULE/PAIR/SHRT/CHIP/GATE/GLQ）, Insight（XRAY/RRG/THEME/PFND/TRAK）, Coverage（COV）, Stock（STK/FCTR）, Flows（FLOW）, Brief（BRIEF）, components/WindowSlider
 models/examples/     ハーネスのサンプル spec
 scripts/             setup / start / dev / test（sh と ps1）
 docs/                本資料群

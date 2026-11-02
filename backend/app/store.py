@@ -31,6 +31,7 @@ DEFAULTS: dict[str, Any] = {
     "fw_ideas": [],       # [{id, title, theme, long, short, answers, month, created}] (05.6 gates)
     "fw_ideas_archive": {},  # month -> ideas snapshot (毎月ゼロから作り直す)
     "transcripts": {},
+    "brief_config": {"auto": True, "time": "07:30"},   # BRIEF: made by the first AUTO run at or after this time
     "coverage": {"items": [], "pages": {}, "config": {"layout": "sector"}},  # COV: Notion 銘柄マスタ + local folders
     "themes": [],         # THEME baskets [{id, name, fact, reason, driver, driver_kind, driver_dir, longs, shorts, hedge}]
     "trinity_config": {"enabled": True, "interval_min": 60, "extra": [], "exclude": [], "max_symbols": 400,

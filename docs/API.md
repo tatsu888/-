@@ -130,6 +130,22 @@
 | POST | /{ticker}/{qid}/folder | 四半期フォルダ（`<銘柄フォルダ>/quarters/FY2027_2Q/`、notes.md はメモと双方向に同期） |
 | GET | /{ticker}/reactions?source | 決算時の株価反応（反応日・対市場・5 日・その後・出来高、まとめ）。実データなら出来高から検出した日付を保存 |
 | GET | /calendar.ics?days&estimates | 決算カレンダーの iCalendar（Outlook / Google カレンダー） |
+| GET | /backups | 決算カレンダーの毎日のバックアップ（30 日分） |
+| POST | /backups/restore `{name}` | バックアップから復元（今のカレンダーは calendar-before-restore-… として残す） |
+| GET | /{ticker}/{qid}/files | 四半期フォルダの資料（notes.md・ロック・ファイルは除く） |
+| POST | /{ticker}/{qid}/files/open `{name}` | 資料を OS で開く |
+| POST | /{ticker}/{qid}/files/transcript `{name}` | .txt / .md を書き起こしとして TXT に取り込む（UTF-8 / Shift_JIS、期のラベルを period に） |
+
+## 朝のブリーフ（/api/brief）— [BRIEF.md](BRIEF.md)
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /brief | 最新のブリーフと日付の一覧、保存先、設定 |
+| GET | /brief/{YYYY-MM-DD} | その日のブリーフ |
+| POST | /brief/generate?source | 今すぐ作成（`_terminal/briefs/` に .md と .json） |
+| GET / PUT | /brief/config `{auto, time}` | 毎朝自動とその時刻（HH:MM） |
+
+websocket の通知：`earnings`（決算日の更新）、`earnings_alert`（明日決算・大きな決算反応）、`brief`（ブリーフの作成）。
 
 ## 分析の拡張（/api/insight）
 

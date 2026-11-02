@@ -251,3 +251,5 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .badge.st-発表済 { color: #aaa; border-color: #666; }
 .badge.st-検出 { color: #c58cff; border-color: #c58cff; }
 a.tb { text-decoration: none; display: inline-block; }
+.brief-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 6px; padding: 6px; }
+.brief-grid .box { margin: 0; }
