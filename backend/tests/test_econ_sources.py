@@ -138,3 +138,56 @@ def test_estat_app_id_checks():
     assert "メールアドレス" in S.estat_app_id_problem("someone@example.com")
     assert S.estat_app_id_problem("abc") and S.estat_app_id_problem("0123456789abcdef0123456789abcdef01234567") is None
     assert S.estat_app_id_problem("") is None
+
+
+def test_new_country_parsers():
+    ons = {"months": [{"date": "2026 AUG", "value": "3.8"}, {"date": "2026 SEP", "value": "4.0"}], "quarters": [], "years": [{"date": "2025", "value": "3.3"}]}
+    assert S.parse_ons(ons) == [("2026-08-01", 3.8), ("2026-09-01", 4.0)]
+    assert S.parse_ons({"months": [], "quarters": [{"date": "2026 Q2", "value": "0.3"}], "years": []}) == [("2026-04-01", 0.3)]
+    boe = "DATE,IUDBEDR\n02 Jan 2025,4.75\n07 Aug 2025,4.00\n"
+    assert S.parse_boe_csv(boe) == [("2025-01-02", 4.75), ("2025-08-07", 4.0)]
+    sc = [{"status": "SUCCESS", "object": {"vectorId": 41690973, "vectorDataPoint": [{"refPer": "2026-08-01", "value": 164.1}, {"refPer": "2026-09-01", "value": 164.5}]}}]
+    assert S.parse_statcan(sc)[-1] == ("2026-09-01", 164.5)
+    with pytest.raises(S.SourceError):
+        S.parse_statcan([{"status": "FAILED", "object": "Invalid vector"}])
+    assert S.parse_bcb([{"data": "01/08/2026", "valor": "4.95"}, {"data": "01/09/2026", "valor": ""}]) == [("2026-08-01", 4.95)]
+    assert S.nbs_time("202609") == "2026-09-01" and S.nbs_time("2026B") == "2026-04-01" and S.nbs_time("2025") == "2025-01-01"
+
+
+NBS_TREE = {"zb": [{"id": "A01", "name": "价格指数", "isParent": True}, {"id": "A02", "name": "工业", "isParent": True}],
+            "A01": [{"id": "A0101", "name": "居民消费价格指数", "isParent": True}, {"id": "A0108", "name": "工业生产者出厂价格指数", "isParent": True}]}
+NBS_DATA = {"returncode": 200, "returndata": {
+    "wdnodes": [{"wdcode": "zb", "nodes": [{"code": "A010101", "cname": "居民消费价格指数(上年同月=100)", "unit": ""},
+                                           {"code": "A010102", "cname": "居民消费价格指数(上年同期=100)", "unit": ""},
+                                           {"code": "A010105", "cname": "居民消费价格指数(上月=100)", "unit": ""}]},
+                {"wdcode": "sj", "nodes": [{"code": "202609"}, {"code": "202608"}]}],
+    "datanodes": [{"code": "zb.A010101_sj.202609", "data": {"data": 100.3, "hasdata": True}, "wds": [{"wdcode": "zb", "valuecode": "A010101"}, {"wdcode": "sj", "valuecode": "202609"}]},
+                  {"code": "zb.A010101_sj.202608", "data": {"data": 99.9, "hasdata": True}, "wds": [{"wdcode": "zb", "valuecode": "A010101"}, {"wdcode": "sj", "valuecode": "202608"}]},
+                  {"code": "zb.A010105_sj.202609", "data": {"data": 100.1, "hasdata": True}, "wds": [{"wdcode": "zb", "valuecode": "A010105"}, {"wdcode": "sj", "valuecode": "202609"}]},
+                  {"code": "zb.A010101_sj.202607", "data": {"data": 0, "hasdata": False}, "wds": [{"wdcode": "zb", "valuecode": "A010101"}, {"wdcode": "sj", "valuecode": "202607"}]}]}}
+
+
+def test_nbs_resolve_by_names_and_fetch():
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "POST":
+            form = dict(x.split("=") for x in req.content.decode().split("&"))
+            seen.append(("tree", form["id"]))
+            return httpx.Response(200, json=NBS_TREE.get(form["id"], []))
+        seen.append(("data", req.url.params["dfwds"]))
+        return httpx.Response(200, json=NBS_DATA)
+
+    spec = {"db": "hgyd", "path": ["价格指数", "居民消费价格指数"], "leaf": ["居民消费价格指数", "上年同月"]}
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            r = await S.nbs_resolve(c, spec)
+            return r, await S.nbs_fetch(c, r)
+
+    r, obs = asyncio.run(go())
+    assert r["parent"] == "A0101" and r["code"] == "A010101" and r["path"] == ["价格指数", "居民消费价格指数"]
+    assert obs == [("2026-08-01", 99.9), ("2026-09-01", 100.3)]                      # hasdata false is skipped, other leaves ignored
+    assert seen[0] == ("tree", "zb") and '"valuecode":"A0101"' in seen[-1][1]
+    with pytest.raises(S.SourceError):
+        S.parse_nbs(NBS_DATA, ["不存在的指标"])

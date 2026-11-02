@@ -85,6 +85,11 @@ def test_update_store_releases_dashboard_flows(monkeypatch):
         assert set(cb["total"]["members"]) == {"US.FED_ASSETS", "US.TGA", "US.RRP", "JP.BOJ_ASSETS"}     # NET_LIQ not double counted
         boj = next(r for r in cb["rows"] if r["id"] == "JP.BOJ_ASSETS")
         assert boj["usd_sums"] and boj["in_total"]                                     # 億円 → ドル（USDJPY 150）
+        mx = c.get("/api/econ/matrix").json()
+        us = next(r for r in mx["rows"] if r["country"] == "US")
+        assert [col["key"] for col in mx["columns"]][:4] == ["GDP", "CPI", "CORE", "UNEMP"]
+        assert us["cells"]["CPI"]["id"] == "US.CPI" and us["cells"]["CPI"]["pct"] and us["cells"]["CPI"]["value"] is not None
+        assert us["cells"]["UNEMP"]["good"] == -1 and "GDP" not in us["cells"]                # not fetched → empty cell
 
 
 def test_fixes_custom_upload_regime_and_estat_pin(monkeypatch, tmp_path):
@@ -156,3 +161,25 @@ def test_estat_login_email_is_reported_clearly(monkeypatch):
         raise AssertionError("should fail")
     except SRC.SourceError as ex:
         assert "マイページ" in str(ex)
+
+
+def test_nbs_index_is_converted_to_percent():
+    """China's 「上年同月 = 100」 indices are stored as year-on-year % (value − 100)."""
+    import asyncio
+    import httpx
+    from tests.test_econ_sources import NBS_DATA, NBS_TREE
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "POST":
+            form = dict(x.split("=") for x in req.content.decode().split("&"))
+            return httpx.Response(200, json=NBS_TREE.get(form["id"], []))
+        return httpx.Response(200, json=NBS_DATA)
+
+    e = next(x for x in AE.entries() if x["id"] == "CN.NBS_CPI")
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            return await AE.fetch_entry(c, e, None)
+
+    obs, meta = asyncio.run(go())
+    assert [round(v, 6) for _, v in obs] == [-0.1, 0.3] and meta["resolved"]["code"] == "A010101"

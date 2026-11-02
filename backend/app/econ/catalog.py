@@ -28,7 +28,8 @@ from typing import Any
 COUNTRIES = {"GLOBAL": "世界", "US": "米国", "JP": "日本", "EA": "ユーロ圏", "DE": "ドイツ", "FR": "フランス",
              "IT": "イタリア", "ES": "スペイン", "NL": "オランダ", "UK": "英国", "CN": "中国", "KR": "韓国", "TW": "台湾",
              "IN": "インド", "CA": "カナダ", "AU": "豪州", "BR": "ブラジル", "MX": "メキシコ", "CH": "スイス",
-             "ID": "インドネシア", "VN": "ベトナム"}
+             "ID": "インドネシア", "VN": "ベトナム", "PT": "ポルトガル", "IE": "アイルランド", "BE": "ベルギー", "AT": "オーストリア",
+             "GR": "ギリシャ", "FI": "フィンランド"}
 CATEGORIES = ["景気・生産", "消費・所得", "住宅", "企業・投資", "雇用", "物価", "貿易・対外", "金融・流動性", "金利",
               "信用・金融環境", "マインド", "財政", "為替", "商品", "株式"]
 AXES = {"growth": "成長", "labor": "雇用", "inflation": "インフレ", "liquidity": "流動性", "rates": "金利", "fx": "為替",
@@ -465,6 +466,132 @@ D("JP.US_JP_2Y", "日米 2 年金利差", "JP", R, "rates", {"lin": [["US.MKT_US
 D("EA.BTP_BUND", "伊独 10 年スプレッド", "EA", CR, "liquidity", {"lin": [["IT.BTP10", 1], ["DE.BUND10", -1]]}, "D", "lvl", -1, "%")
 
 # ======================================================================================================
+# 中国（国家統計局 data.stats.gov.cn — 指標の木を名前でたどって固定。鍵なし）
+# code = {db: hgyd 月次 / hgjd 四半期 / hgnd 年次, path: 各階層の名前に含まれる語, leaf: 指標名に含まれる語}
+# ======================================================================================================
+def NB(id: str, name: str, category: str, axis: str, path: list[Any], leaf: list[str], freq: str = "M", tf: str = "lvl",
+       good: int = 1, unit: str = "", key: bool = False, db: str = "hgyd") -> None:
+    spec = {"db": db, "path": path, "leaf": leaf}
+    if "上年同月" in "".join(leaf):
+        spec["adj"] = -100              # index (previous year = 100) → change in %
+    E(id, name, "CN", category, axis, "nbs", spec, freq, tf, good, unit, key)
+
+
+NB("CN.NBS_CPI", "CPI（前年比 %）", P, "inflation", ["价格指数", "居民消费价格指数"], ["居民消费价格指数", "上年同月"], unit="%", key=True)
+NB("CN.NBS_CORE_CPI", "コア CPI（食品・エネルギー除く、前年比 %）", P, "inflation", ["价格指数", "居民消费价格指数"],
+   ["不包括食品和能源", "上年同月"], unit="%")
+NB("CN.NBS_PPI", "PPI（前年比 %）", P, "inflation", ["价格指数", "工业生产者出厂价格指数"], ["工业生产者出厂价格指数", "上年同月"], unit="%",
+   key=True)
+NB("CN.NBS_IP", "工業生産（前年比 %）", G, "growth", ["工业", "工业增加值"], ["工业增加值", "同比增长"], unit="%", key=True)
+NB("CN.NBS_RETAIL", "社会消費品小売総額（前年比 %）", C, "growth", ["国内贸易", "社会消费品零售总额"], ["社会消费品零售总额", "同比增长"],
+   unit="%", key=True)
+NB("CN.NBS_FAI", "固定資産投資（年初来、前年比 %）", B, "growth", ["固定资产投资"], ["固定资产投资额", "累计增长"], unit="%", key=True)
+NB("CN.NBS_PROP_INV", "不動産開発投資（年初来、前年比 %）", H, "growth", ["房地产", "房地产开发投资"], ["投资", "累计增长"], unit="%")
+NB("CN.NBS_HOUSE_SALES", "商品住宅の販売面積（年初来、前年比 %）", H, "growth", ["房地产", "商品房销售"], ["销售面积", "累计增长"], unit="%")
+NB("CN.NBS_STARTS", "新規着工面積（年初来、前年比 %）", H, "growth", ["房地产", "房地产开发"], ["新开工面积", "累计增长"], unit="%")
+NB("CN.NBS_UNEMP", "都市部調査失業率", L, "labor", ["城镇调查失业率"], ["全国城镇调查失业率"], good=-1, unit="%", key=True)
+NB("CN.NBS_PMI", "製造業 PMI（国家統計局）", S, "growth", ["采购经理指数", "制造业采购经理指数"], ["制造业采购经理指数"], key=True)
+NB("CN.NBS_PMI_NEWORD", "製造業 PMI 新規受注", S, "growth", ["采购经理指数", "制造业采购经理指数"], ["新订单指数"])
+NB("CN.NBS_NMPMI", "非製造業 PMI（商務活動）", S, "growth", ["采购经理指数", "非制造业"], ["非制造业商务活动指数"], key=True)
+NB("CN.NBS_CPMI", "総合 PMI 産出指数", S, "growth", ["采购经理指数", "综合"], ["综合PMI产出指数"])
+NB("CN.NBS_EXPORTS", "輸出（ドル、前年比 %）", T, "growth", ["对外经济", "货物进出口"], ["出口总值", "同比增长"], unit="%", key=True)
+NB("CN.NBS_IMPORTS", "輸入（ドル、前年比 %）", T, "growth", ["对外经济", "货物进出口"], ["进口总值", "同比增长"], unit="%")
+NB("CN.NBS_M2", "M2（前年比 %）", M, "liquidity", ["金融", "货币供应量"], ["M2", "同比增长"], unit="%", key=True)
+NB("CN.NBS_M1", "M1（前年比 %）", M, "liquidity", ["金融", "货币供应量"], ["M1", "同比增长"], unit="%")
+NB("CN.NBS_POWER", "発電量（前年比 %）", G, "growth", ["能源", "能源产品产量"], ["发电量", "同比增长"], unit="%")
+NB("CN.NBS_STEEL", "粗鋼生産（前年比 %）", G, "growth", ["工业", "工业产品产量"], ["粗钢产量", "同比增长"], unit="%")
+NB("CN.NBS_CEMENT", "セメント生産（前年比 %）", G, "growth", ["工业", "工业产品产量"], ["水泥产量", "同比增长"], unit="%")
+NB("CN.NBS_AUTOS", "自動車生産（前年比 %）", G, "growth", ["工业", "工业产品产量"], ["汽车产量", "同比增长"], unit="%")
+NB("CN.NBS_SERVICES", "サービス業生産指数（前年比 %）", G, "growth", ["服务业生产指数"], ["服务业生产指数", "同比增长"], unit="%")
+NB("CN.NBS_GDP", "実質 GDP（年初来、前年比 %）", G, "growth", ["国民经济核算", "国内生产总值"], ["国内生产总值", "累计增长"], "Q", unit="%",
+   key=True, db="hgjd")
+F("CN.FX_RESERVES", "中国 外貨準備（IMF）", "CN", M, "liquidity", "TRESEGCNM052N", unit="百万ドル")
+F("CN.CREDIT_BIS", "中国 民間非金融部門への信用（BIS）", "CN", M, "liquidity", "CRDQCNAPABIS", "Q")
+
+# ======================================================================================================
+# 英国（ONS 時系列 JSON、イングランド銀行 IADB）・カナダ（Statistics Canada WDS）・ブラジル（BCB SGS）— 鍵なし
+# ======================================================================================================
+for _id, _n, _cat, _ax, _path, _tf, _g, _key in (
+        ("UK.ONS_CPI", "CPI 前年比（ONS）", P, "inflation", "/economy/inflationandpriceindices/timeseries/d7g7/mm23", "lvl", 1, True),
+        ("UK.ONS_CPIH", "CPIH 前年比（ONS）", P, "inflation", "/economy/inflationandpriceindices/timeseries/l55o/mm23", "lvl", 1, False),
+        ("UK.ONS_CORE_CPI", "コア CPI 前年比（ONS）", P, "inflation", "/economy/inflationandpriceindices/timeseries/dko8/mm23", "lvl", 1, True),
+        ("UK.ONS_UNEMP", "失業率（ONS）", L, "labor", "/employmentandlabourmarket/peoplenotinwork/unemployment/timeseries/mgsx/lms", "lvl", -1, True),
+        ("UK.ONS_EMP_RATE", "就業率 16〜64 歳（ONS）", L, "labor", "/employmentandlabourmarket/peopleinwork/employmentandemployeetypes/timeseries/lf24/lms", "lvl", 1, False),
+        ("UK.ONS_AWE", "週平均賃金 前年比（3 か月平均、ONS）", L, "inflation", "/employmentandlabourmarket/peopleinwork/earningsandworkinghours/timeseries/kac3/lms", "lvl", 1, True),
+        ("UK.ONS_AWE_REG", "週平均賃金 所定内 前年比（ONS）", L, "inflation", "/employmentandlabourmarket/peopleinwork/earningsandworkinghours/timeseries/kai9/lms", "lvl", 1, False),
+        ("UK.ONS_CLAIMANT", "失業手当申請者数（ONS）", L, "labor", "/employmentandlabourmarket/peoplenotinwork/outofworkbenefits/timeseries/bcjd/lms", "lvl", -1, False),
+        ("UK.ONS_GDP_M", "月次 GDP（ONS）", G, "growth", "/economy/grossdomesticproductgdp/timeseries/ecy2/mgdp", "yoy", 1, True),
+        ("UK.ONS_RETAIL", "小売売上（数量、ONS）", C, "growth", "/businessindustryandtrade/retailindustry/timeseries/j5ek/drsi", "yoy", 1, True),
+        ("UK.ONS_PSNB", "公的部門純借入（ONS）", FS, "fiscal", "/economy/governmentpublicsectorandtaxes/publicsectorfinance/timeseries/j5ii/pusf", "lvl", 0, False),
+        ("UK.ONS_TRADE", "貿易収支（ONS）", T, "external", "/economy/nationalaccounts/balanceofpayments/timeseries/ikbj/mret", "lvl", 0, False)):
+    E(_id, _n, "UK", _cat, _ax, "ons", _path, "M", _tf, _g, "%" if _tf == "lvl" and _g else "", _key)
+E("UK.BANK_RATE", "英中銀 政策金利（Bank Rate）", "UK", R, "rates", "boe", "IUDBEDR", "D", "lvl", 0, "%", True)
+E("UK.MORTGAGE_APPROVALS", "住宅ローン承認件数（BoE）", "UK", H, "growth", "boe", "LPMVTVX", "M", "lvl", 1, "件")
+E("CA.CPI_SC", "カナダ CPI（Statistics Canada）", "CA", P, "inflation", "statcan", "41690973", "M", "yoy", 1, "", True)
+E("CA.UNEMP_SC", "カナダ 失業率（Statistics Canada）", "CA", L, "labor", "statcan", "2062815", "M", "lvl", -1, "%", True)
+E("CA.GDP_M", "カナダ 月次 GDP（Statistics Canada）", "CA", G, "growth", "statcan", "65201210", "M", "yoy", 1, "", True)
+E("BR.IPCA_12M", "ブラジル IPCA（12 か月、BCB）", "BR", P, "inflation", "bcb", "13522", "M", "lvl", 1, "%", True)
+E("BR.SELIC", "ブラジル Selic 誘導目標（BCB）", "BR", R, "rates", "bcb", "432", "D", "lvl", 0, "%", True)
+E("BR.UNEMP", "ブラジル 失業率（PNAD、BCB）", "BR", L, "labor", "bcb", "24369", "M", "lvl", -1, "%")
+E("BR.IBCBR", "ブラジル 経済活動指数 IBC-Br（BCB）", "BR", G, "growth", "bcb", "24364", "M", "yoy", 1, "", True)
+
+# ======================================================================================================
+# 米国の追加（物流・エネルギー・信用の質・地区連銀・FRB の保有資産・事業の立ち上げ）
+# ======================================================================================================
+F("US.PERS_INCOME", "個人所得", "US", C, "growth", "PI")
+F("US.PCE_NOM", "個人消費支出（名目）", "US", C, "growth", "PCE")
+F("US.EXPORTS_M", "輸出（財・サービス、月次）", "US", T, "growth", "BOPTEXP")
+F("US.IMPORTS_M", "輸入（財・サービス、月次）", "US", T, "growth", "BOPTIMP")
+F("US.CASS_FREIGHT", "Cass 貨物輸送量", "US", G, "growth", "FRGSHPUSM649NCIS")
+F("US.TRUCK", "トラック輸送量", "US", G, "growth", "TRUCKD11")
+F("US.RAIL", "鉄道貨物（車両数）", "US", G, "growth", "RAILFRTCARLOADSD11")
+F("US.BIZ_APPS", "新規事業の申請件数", "US", B, "growth", "BABATOTALSAUS")
+F("US.UNEMPLOYED", "失業者数", "US", L, "labor", "UNEMPLOY", good=-1)
+F("US.DALLAS", "ダラス連銀製造業景況指数", "US", S, "growth", "BACTSAMFRBDAL", tf="lvl")
+F("US.KCFSI", "カンザスシティ連銀 金融ストレス指数", "US", CR, "liquidity", "KCFSI", tf="lvl", good=-1)
+F("US.CONS_DELINQ", "消費者ローン延滞率", "US", CR, "growth", "DRCLACBS", "Q", "lvl", good=-1, unit="%")
+F("US.MORT_DELINQ", "住宅ローン延滞率", "US", CR, "growth", "DRSFRMACBS", "Q", "lvl", good=-1, unit="%")
+F("US.CRE_DELINQ", "商業用不動産ローン延滞率", "US", CR, "growth", "DRCRELEXFACBS", "Q", "lvl", good=-1, unit="%")
+F("US.HH_DEBT_GDP", "家計債務 GDP 比", "US", C, "growth", "HDTGPDUSQ163N", "Q", "lvl", good=0, unit="%")
+F("US.BANK_CREDIT", "銀行信用（全体）", "US", M, "liquidity", "TOTBKCR", "W")
+F("US.FED_MBS", "FRB の MBS 保有", "US", M, "liquidity", "WSHOMCB", "W", unit="百万ドル")
+F("US.FED_TSY", "FRB の米国債保有（週次）", "US", M, "liquidity", "TREAST", "W", unit="百万ドル")
+F("US.REAL_DOLLAR", "実質ドル指数（広義）", "US", "為替", "liquidity", "RTWEXBGS", tf="lvl", good=-1)
+F("US.CRUDE_STOCKS", "原油在庫（EIA、週次）", "US", "商品", "inflation", "WCESTUS1", "W", good=-1)
+F("US.HENRY_HUB", "天然ガス（ヘンリーハブ）", "US", "商品", "inflation", "DHHNGSP", "D")
+for _id, _n, _c in (("US.UST1", "米国債 1 年", "DGS1"), ("US.BAA", "社債 Baa 利回り", "DBAA"), ("US.AAA", "社債 Aaa 利回り", "DAAA"),
+                    ("US.CP3M", "CP 3 か月（金融 AA）", "DCPF3M")):
+    F(_id, _n, "US", R, "rates", _c, "D", "lvl", good=0, unit="%")
+F("US.MORT15", "15 年住宅ローン金利", "US", R, "rates", "MORTGAGE15US", "W", "lvl", good=0, unit="%")
+
+# ======================================================================================================
+# 欧州の追加（対象国を広げる、住宅価格、建設、ECB の信用）
+# ======================================================================================================
+for cc in ("PT", "IE", "BE", "AT", "GR", "FI"):
+    nm = COUNTRIES[cc]
+    EU(f"{cc}.UNEMP", f"{nm} 失業率", cc, L, "labor", "une_rt_m", f"geo={cc if cc != 'GR' else 'EL'}&s_adj=SA&age=TOTAL&sex=T&unit=PC_ACT",
+       tf="lvl", good=-1, unit="%")
+    EU(f"{cc}.HICP_RATE", f"{nm} HICP 前年比", cc, P, "inflation", "prc_hicp_manr", f"geo={cc if cc != 'GR' else 'EL'}&coicop=CP00&unit=RCH_A",
+       tf="lvl", unit="%")
+for cc, geo in (("EA", "EA20"), ("DE", "DE"), ("FR", "FR"), ("ES", "ES"), ("NL", "NL")):
+    EU(f"{cc}.HOUSE_PX_ES", f"{COUNTRIES[cc]} 住宅価格 前年比（Eurostat）", cc, H, "growth", "prc_hpi_q", f"geo={geo}&purchase=TOTAL&unit=RCH_A",
+       "Q", "lvl", unit="%")
+EU("EA.CONSTRUCTION", "ユーロ圏 建設生産", "EA", H, "growth", "sts_copr_m", "geo=EA20&s_adj=SCA&nace_r2=F&unit=I21&indic_bt=PRD")
+ECB("EA.LOANS_NFC", "企業向け貸出（前年比）", M, "liquidity", "BSI/M.U2.Y.U.A20T.A.I.U2.2240.Z01.A")
+ECB("EA.LOANS_HH", "家計向け貸出（前年比）", M, "liquidity", "BSI/M.U2.Y.U.A20T.A.I.U2.2250.Z01.A")
+ECB("EA.M1", "M1（前年比）", M, "liquidity", "BSI/M.U2.Y.V.M10.X.I.U2.2300.Z01.A")
+ECB("EA.ESTR", "€STR（ユーロ短期金利）", R, "rates", "EST/B.EU000A2X2A25.WT", "D", good=0)
+
+# ======================================================================================================
+# 世界の商品の追加（IMF 一次産品価格）
+# ======================================================================================================
+for _id, _n, _c, _ax in (("GLOBAL.ALUMINUM", "アルミニウム（IMF）", "PALUMUSDM", "growth"), ("GLOBAL.NICKEL", "ニッケル（IMF）", "PNICKUSDM", "growth"),
+                         ("GLOBAL.ZINC", "亜鉛（IMF）", "PZINCUSDM", "growth"), ("GLOBAL.COAL", "石炭（豪州、IMF）", "PCOALAUUSDM", "inflation"),
+                         ("GLOBAL.LNG_JP", "LNG（日本、IMF）", "PNGASJPUSDM", "inflation"), ("GLOBAL.SOYBEANS", "大豆（IMF）", "PSOYBUSDM", "inflation"),
+                         ("GLOBAL.COTTON", "綿花（IMF）", "PCOTTINDUSDM", "inflation"), ("GLOBAL.RUBBER", "ゴム（IMF）", "PRUBBUSDM", "growth")):
+    F(_id, _n, "GLOBAL", "商品", _ax, _c)
+
+# ======================================================================================================
 # フロー（資金の流れ）— 残高の系列は変化（Δ）を、フローの系列はその合計を見る
 # ======================================================================================================
 F("US.MMF_RETAIL", "MMF 残高（個人向け）", "US", M, "liquidity", "WRMFNS", "W", good=0, unit="10 億ドル")
@@ -506,6 +633,10 @@ FLOW_META: dict[str, dict[str, Any]] = {
     "US.MMF_INST": {"kind": "stock", "group": "現金待機（MMF）", "ccy": "USD", "mult": 1e9, "sign": -1},
     "US.FOREIGN_UST": {"kind": "stock", "group": "国際資本フロー", "ccy": "USD", "mult": 1e9, "sign": 1},
     "US.FED_UST": {"kind": "stock", "group": "中銀の流動性", "ccy": "USD", "mult": 1e9, "sign": 1, "total": False},
+    "US.FED_MBS": {"kind": "stock", "group": "中銀の流動性", "ccy": "USD", "mult": 1e6, "sign": 1, "total": False},
+    "US.FED_TSY": {"kind": "stock", "group": "中銀の流動性", "ccy": "USD", "mult": 1e6, "sign": 1, "total": False},
+    "US.BANK_CREDIT": {"kind": "stock", "group": "マネー・銀行信用", "ccy": "USD", "mult": 1e9, "sign": 1, "total": False},
+    "CN.FX_RESERVES": {"kind": "stock", "group": "国際資本フロー", "ccy": "USD", "mult": 1e6, "sign": 1},
     "US.FOREIGN_DEP": {"kind": "stock", "group": "国際資本フロー", "ccy": "USD", "mult": 1e9, "sign": 1},
     "JP.FLOW_IN_EQ": {"kind": "flow", "group": "国際資本フロー", "ccy": "JPY", "mult": 1e8, "sign": 1},
     "JP.FLOW_IN_BOND": {"kind": "flow", "group": "国際資本フロー", "ccy": "JPY", "mult": 1e8, "sign": 1},
@@ -518,7 +649,47 @@ for _e in CATALOG:
     if _e["id"] in FLOW_META:
         _e["flow"] = FLOW_META[_e["id"]]
 
+# ======================================================================================================
+# 世界の主要指標マトリクス（ECST の最初の画面）：国 × 項目 → 使う系列（先にあるものを優先）
+# ======================================================================================================
+MATRIX_COLS = [("GDP", "実質 GDP", "GDP"), ("CPI", "CPI", "CPI"), ("CORE", "コア CPI", "CORE CPI"), ("UNEMP", "失業率", "UNEMP"),
+               ("POLICY", "政策金利", "POLICY"), ("Y10", "10 年金利", "10Y"), ("SENT", "景況感", "SURVEY"), ("RETAIL", "小売", "RETAIL"),
+               ("IP", "生産", "PROD"), ("EXPORTS", "輸出", "EXPORTS"), ("MONEY", "マネー", "MONEY")]
+MATRIX_ROWS: dict[str, dict[str, list[str]]] = {
+    "US": {"GDP": ["US.GDP"], "CPI": ["US.CPI"], "CORE": ["US.CORECPI"], "UNEMP": ["US.UNRATE"], "POLICY": ["US.FFR"],
+           "Y10": ["US.UST10", "US.MKT_UST10"], "SENT": ["US.PHILLY", "US.EMPIRE", "US.UMICH"], "RETAIL": ["US.RETAIL"], "IP": ["US.IP"],
+           "EXPORTS": ["US.EXPORTS_M", "US.EXPORTS"], "MONEY": ["US.M2"]},
+    "JP": {"GDP": ["JP.GDP", "JP.GDP_FRED"], "CPI": ["JP.CPI", "JP.CPI_OECD"], "CORE": ["JP.CORECPI"], "UNEMP": ["JP.UNEMP", "JP.UNEMP_OECD"],
+           "POLICY": ["JP.CALL_RATE"], "Y10": ["JP.JGB10", "JP.JGB10_M"], "SENT": ["JP.TANKAN_LM", "JP.WATCHERS", "JP.BCI"],
+           "RETAIL": ["JP.RETAIL"], "IP": ["JP.IP"], "EXPORTS": ["JP.EXPORTS", "JP.EXPORTS_USD"], "MONEY": ["JP.MONEY_M2"]},
+    "EA": {"GDP": ["EA.GDP"], "CPI": ["EA.HICP", "EA.HICP_RATE"], "CORE": ["EA.CORE_HICP", "EA.HICP_CORE_ES"], "UNEMP": ["EA.UNEMP", "EA.UNEMP_ECB"],
+           "POLICY": ["EA.DFR"], "Y10": ["EA.AAA10Y", "DE.BUND10"], "SENT": ["EA.ESI"], "RETAIL": ["EA.RETAIL"], "IP": ["EA.IP"],
+           "MONEY": ["EA.M3"]},
+    "UK": {"GDP": ["UK.ONS_GDP_M"], "CPI": ["UK.ONS_CPI", "UK.CPI"], "CORE": ["UK.ONS_CORE_CPI"], "UNEMP": ["UK.ONS_UNEMP", "UK.UNEMP"],
+           "POLICY": ["UK.BANK_RATE", "UK.RATE3M"], "Y10": ["UK.GILT10", "UK.BOND10"], "SENT": ["UK.CLI"], "RETAIL": ["UK.ONS_RETAIL"]},
+    "CN": {"GDP": ["CN.NBS_GDP"], "CPI": ["CN.NBS_CPI", "CN.CPI"], "CORE": ["CN.NBS_CORE_CPI"], "UNEMP": ["CN.NBS_UNEMP"], "Y10": ["CN.CGB10"],
+           "SENT": ["CN.NBS_PMI", "CN.CLI"], "RETAIL": ["CN.NBS_RETAIL"], "IP": ["CN.NBS_IP"], "EXPORTS": ["CN.NBS_EXPORTS", "CN.EXPORTS"],
+           "MONEY": ["CN.NBS_M2", "CN.M2"]},
+    "DE": {"GDP": ["DE.GDP"], "CPI": ["DE.HICP_RATE"], "UNEMP": ["DE.UNEMP"], "Y10": ["DE.BUND10", "DE.BOND10"], "SENT": ["DE.ESI", "DE.CLI"],
+           "RETAIL": ["DE.RETAIL"], "IP": ["DE.IP"], "EXPORTS": ["DE.EXPORTS"]},
+    "FR": {"GDP": ["FR.GDP"], "CPI": ["FR.HICP_RATE"], "UNEMP": ["FR.UNEMP"], "Y10": ["FR.OAT10", "FR.BOND10"], "SENT": ["FR.ESI"],
+           "RETAIL": ["FR.RETAIL"], "IP": ["FR.IP"]},
+    "IT": {"GDP": ["IT.GDP"], "CPI": ["IT.HICP_RATE"], "UNEMP": ["IT.UNEMP"], "Y10": ["IT.BTP10", "IT.BOND10"], "SENT": ["IT.ESI"],
+           "RETAIL": ["IT.RETAIL"], "IP": ["IT.IP"]},
+    "ES": {"GDP": ["ES.GDP"], "CPI": ["ES.HICP_RATE"], "UNEMP": ["ES.UNEMP"], "Y10": ["ES.BOND10"], "SENT": ["ES.ESI"], "RETAIL": ["ES.RETAIL"],
+           "IP": ["ES.IP"]},
+    "KR": {"CPI": ["KR.CPI"], "UNEMP": ["KR.UNEMP"], "Y10": ["KR.BOND10"], "SENT": ["KR.CLI"], "EXPORTS": ["KR.EXPORTS"]},
+    "CA": {"GDP": ["CA.GDP_M"], "CPI": ["CA.CPI_SC", "CA.CPI"], "UNEMP": ["CA.UNEMP_SC", "CA.UNEMP"], "Y10": ["CA.BOND10"]},
+    "AU": {"CPI": ["AU.CPI"], "UNEMP": ["AU.UNEMP"], "Y10": ["AU.ACGB10", "AU.BOND10"]},
+    "BR": {"GDP": ["BR.IBCBR"], "CPI": ["BR.IPCA_12M", "BR.CPI"], "UNEMP": ["BR.UNEMP"], "POLICY": ["BR.SELIC"]},
+    "IN": {"GDP": ["IN.GDP_A"], "CPI": ["IN.CPI"]},
+    "MX": {"CPI": ["MX.CPI"]},
+}
+
 BY_ID = {e["id"]: e for e in CATALOG}
+for _row in MATRIX_ROWS.values():
+    for _ids in _row.values():
+        assert all(i in BY_ID for i in _ids), f"MATRIX refers to an unknown series: {_ids}"
 assert len(BY_ID) == len(CATALOG), "duplicate ids in the ECON catalog"
 
 

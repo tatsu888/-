@@ -10,9 +10,18 @@ import { LineChart } from '../components/LineChart';
 import { GLQuad } from './Trinity';
 import { useTerminal } from '../ctx';
 
-const TABS = ['DASH', 'FLOWS', 'RELEASES', 'BROWSE', 'SERIES', 'SOURCES'] as const;
+const TABS = ['MATRIX', 'DASH', 'FLOWS', 'RELEASES', 'BROWSE', 'SERIES', 'SOURCES'] as const;
 type Tab = (typeof TABS)[number];
-const TAB_JA: Record<Tab, string> = { DASH: 'ダッシュボード', FLOWS: '資金フロー', RELEASES: '発表', BROWSE: '一覧', SERIES: '系列', SOURCES: 'データ源' };
+const TAB_JA: Record<Tab, string> = { MATRIX: '主要指標', DASH: '合成指数', FLOWS: '資金フロー', RELEASES: '発表', BROWSE: '一覧', SERIES: '系列', SOURCES: 'データ源' };
+const HELP: Record<Tab, string> = {
+  MATRIX: '国 × 主要指標の最新値。▲▼ は前回比。緑＝景気・雇用の改善／赤＝悪化、物価・金利は 橙＝上昇／青＝低下、灰色＝更新が止まっている疑い。セルをクリックで系列へ。',
+  DASH: '国ごとの合成指数（成長・インフレ・流動性。0 が平常、+ が強い）と、統計版の成長×流動性の局面。カードを選ぶと推移と象限。下は国 × 分野のヒートマップ。',
+  FLOWS: '統計から見た資金の流れ。残高は変化、ネット購入などは合計。＋は市場への資金供給（TGA・リバースレポ・MMF の増加は吸収）。行を選ぶと累積。',
+  RELEASES: '新しい期間のデータが入った指標（発表）。サプライズ＝機械的な予想（AR(1)）との差で、市場予想ではない。|z| ≥ 1.5 を黄色。',
+  BROWSE: 'すべての系列。国・分野・データ源で絞り込み、クリックで系列へ。状態：OK／更新停止?／エラー／未取得。',
+  SERIES: '1 系列のグラフと統計。右は「指標の状態ごとに資産がその後どう動いたか」と「何か月先行するか」。',
+  SOURCES: 'データ源ごとの取得状況、鍵、自動更新の設定。エラーの系列はここで直す・止める。e-Stat の表の選び直し、検索、ファイルの取り込みも。',
+};
 const COMP_JA: Record<string, string> = { growth: '成長', inflation: 'インフレ', liquidity: '流動性' };
 const ts = (d: string) => Date.parse((d.length === 7 ? d + '-01' : d) + 'T00:00:00Z') / 1000;
 const zc = (v?: number | null) => (v == null ? 'muted' : v >= 0.5 ? 'up' : v <= -0.5 ? 'down' : '');
@@ -22,16 +31,27 @@ const ASSETS = [['TVC:TOPIX', 'TOPIX'], ['TVC:NI225', '日経平均'], ['SP:SPX'
   ['TVC:US10Y', '米10年'], ['TVC:JP10Y', '日10年'], ['TVC:GOLD', '金'], ['COMEX:HG1!', '銅'], ['TVC:USOIL', 'WTI']];
 
 export function ECST({ args }: { args?: string }) {
-  const [tab, setTab] = useState<Tab>((TABS as readonly string[]).includes(args?.toUpperCase() || '') ? (args!.toUpperCase() as Tab) : 'DASH');
+  const [tab, setTab] = useState<Tab>((TABS as readonly string[]).includes(args?.toUpperCase() || '') ? (args!.toUpperCase() as Tab) : 'MATRIX');
   const [sel, setSel] = useState<string>('US.CPI');
   const open = (id: string) => { setSel(id); setTab('SERIES'); };
+  const keys = (e: React.KeyboardEvent) => {
+    if (/^[1-7]$/.test(e.key) && !(e.target as HTMLElement).closest('input, select, textarea')) setTab(TABS[+e.key - 1]);
+  };
   return (
-    <div>
-      <div className="toolbar">
-        <span className="amber" style={{ fontSize: 14 }}>マクロ統計</span>
-        {TABS.map((t) => <button key={t} className={`tb ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>{t}<span className="muted" style={{ fontSize: 9 }}> {TAB_JA[t]}</span></button>)}
+    <div tabIndex={0} onKeyDown={keys} style={{ outline: 'none' }}>
+      <div className="bb-head">
+        <span className="bb-code">ECST</span><span className="bb-title">WORLD ECONOMIC STATISTICS</span><span className="muted">世界経済統計</span>
         <UpdateButton />
       </div>
+      <div className="bb-menu">
+        {TABS.map((t, i) => (
+          <button key={t} className={`bb-item ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)} title={`${i + 1} キーでも切り替え`}>
+            <span className="bb-num">{i + 1})</span> {t} <span className="bb-ja">{TAB_JA[t]}</span>
+          </button>
+        ))}
+      </div>
+      <div className="bb-help">{HELP[tab]}</div>
+      {tab === 'MATRIX' && <Matrix open={open} />}
       {tab === 'DASH' && <Dash open={open} />}
       {tab === 'FLOWS' && <Flows open={open} />}
       {tab === 'RELEASES' && <Releases open={open} />}
@@ -57,6 +77,47 @@ function UpdateButton() {
         {!s.keys.ESTAT_APP_ID && <span className="down"> · ESTAT_APP_ID {s.key_problems?.ESTAT_APP_ID ? '要確認' : '未設定'}</span>}{!s.keys.FRED_API_KEY && <span className="muted"> · FRED は鍵なし（CSV）</span>}
         <button className="tb mini" onClick={() => st.reload()}>↻</button></>}
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------
+const NEUTRAL_AXES = new Set(['inflation', 'rates', 'fx']);
+const fmtV = (v?: number | null, pct?: boolean) => (v == null ? '—' : `${Math.abs(v) >= 1000 ? fmtNum(v, 0) : v.toFixed(Math.abs(v) >= 100 ? 1 : pct || Math.abs(v) < 20 ? 2 : 1)}${pct ? '%' : ''}`);
+
+function Matrix({ open }: { open: (id: string) => void }) {
+  const m = useAsync(() => api.get<any>('/econ/matrix'), []);
+  const d = m.data;
+  if (m.loading && !d) return <Loading />;
+  const filled = (d?.rows || []).reduce((n: number, r: any) => n + Object.keys(r.cells).length, 0);
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <ErrorBox error={m.error} />
+      {d && !filled && <div className="note">まだ値がありません。「⟳ 更新」で取得してください（初回は数分）。取得の状況は 7) SOURCES。</div>}
+      {d && (
+        <table className="t bb-matrix">
+          <thead><tr><th className="l">COUNTRY<div className="bb-ja">国・地域</div></th>
+            {d.columns.map((c: any) => <th key={c.key}>{c.en}<div className="bb-ja">{c.ja}</div></th>)}</tr></thead>
+          <tbody>{d.rows.map((r: any) => (
+            <tr key={r.country}>
+              <td className="l"><span className="bb-cc">{r.country}</span> {r.name}</td>
+              {d.columns.map((c: any) => {
+                const x = r.cells[c.key];
+                if (!x) return <td key={c.key} className="muted">—</td>;
+                const dir = x.chg == null || x.chg === 0 ? 0 : x.chg > 0 ? 1 : -1;
+                const cls = x.stale ? 'bb-stale' : NEUTRAL_AXES.has(x.axis) ? (dir > 0 ? 'bb-upn' : dir < 0 ? 'bb-dnn' : '') : dir * (x.good || 1) > 0 ? 'up' : dir * (x.good || 1) < 0 ? 'down' : '';
+                return (
+                  <td key={c.key} className={`bb-cell ${cls}`} onClick={() => open(x.id)} title={`${x.name}（${x.id}）\n${x.date} · 前回 ${fmtV(x.prev, x.pct)}${x.z != null ? ` · z ${x.z.toFixed(1)}` : ''}${x.stale ? ' · 更新停止の疑い' : ''}`}>
+                    <div className="bb-val">{fmtV(x.value, x.pct)}</div>
+                    <div className="bb-sub">{dir > 0 ? '▲' : dir < 0 ? '▼' : '＝'}{x.chg != null ? Math.abs(x.chg).toFixed(Math.abs(x.chg) >= 10 ? 0 : 2) : ''} <span className="muted">{(x.date || '').slice(2, 7).replace('-', '/')}</span></div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      <div className="bb-legend"><span className="up">▲ 改善</span> <span className="down">▼ 悪化</span>（景気・雇用）　<span className="bb-upn">▲ 上昇</span> <span className="bb-dnn">▼ 低下</span>（物価・金利）　<span className="bb-stale">灰色＝更新停止の疑い</span>　数字の下は前回からの変化と対象月（年/月）</div>
+    </div>
   );
 }
 

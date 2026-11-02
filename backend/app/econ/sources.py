@@ -398,4 +398,188 @@ def source_url(entry: dict[str, Any]) -> str | None:
         return f"https://data.worldbank.org/indicator/{ind}?locations={iso}"
     if s == "dbnomics":
         return f"https://db.nomics.world/{c}"
+    if s == "nbs":
+        return "https://data.stats.gov.cn/easyquery.htm?cn=A01"
+    if s == "ons":
+        return f"https://www.ons.gov.uk{c}"
+    if s == "boe":
+        return f"https://www.bankofengland.co.uk/boeapps/database/fromshowcolumns.asp?SeriesCodes={c}&UsingCodes=Y"
+    if s == "statcan":
+        return f"https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid={c}"
+    if s == "bcb":
+        return f"https://www3.bcb.gov.br/sgspub/consultarvalores/consultarValoresSeries.do?method=consultarValores&optSelecionaSerie={c}"
     return None
+
+
+# ---------------------------------------------------------------------------------------------------
+# China — National Bureau of Statistics (data.stats.gov.cn "easyquery"; no key). Indicator codes are FOUND by walking
+# the indicator tree by name (like e-Stat), then the leaf is pinned.
+# ---------------------------------------------------------------------------------------------------
+NBS = "https://data.stats.gov.cn/easyquery.htm"
+NBS_HEAD = {"Referer": "https://data.stats.gov.cn/easyquery.htm?cn=A01", "X-Requested-With": "XMLHttpRequest"}
+
+
+def nbs_time(code: str) -> str | None:
+    t = str(code or "")
+    if re.fullmatch(r"\d{6}", t) and 1 <= int(t[4:]) <= 12:
+        return f"{t[:4]}-{t[4:]}-01"
+    m = re.fullmatch(r"(\d{4})([A-D])", t)
+    if m:
+        return f"{m.group(1)}-{'ABCD'.index(m.group(2)) * 3 + 1:02d}-01"
+    return f"{t}-01-01" if re.fullmatch(r"\d{4}", t) else None
+
+
+def _has_all(name: str, kw: list[str] | str) -> bool:
+    kws = [kw] if isinstance(kw, str) else kw
+    return all(k in name for k in kws)
+
+
+def nbs_pick(nodes: list[dict[str, Any]], kw: list[str] | str) -> dict[str, Any] | None:
+    """The node whose name contains every keyword (the shortest such name = the most specific)."""
+    hits = [n for n in nodes if _has_all(str(n.get("name") or n.get("cname") or ""), kw)]
+    return min(hits, key=lambda n: len(str(n.get("name") or n.get("cname")))) if hits else None
+
+
+def parse_nbs(obj: dict[str, Any], leaf: list[str] | str | None = None, code: str | None = None) -> dict[str, Any]:
+    if obj.get("returncode") not in (200, "200"):
+        raise SourceError(f"国家統計局: {str(obj)[:160]}")
+    rd = obj.get("returndata") or {}
+    zb = next((w["nodes"] for w in rd.get("wdnodes", []) if w.get("wdcode") == "zb"), [])
+    node = next((n for n in zb if n.get("code") == code), None) if code else nbs_pick(zb, leaf or [])
+    if not node:
+        raise SourceError(f"国家統計局: 指標「{leaf or code}」が見つからない（候補: {', '.join(n.get('cname', '') for n in zb[:8])}）")
+    out = []
+    for dn in rd.get("datanodes", []):
+        wds = {w.get("wdcode"): w.get("valuecode") for w in dn.get("wds", [])}
+        if wds.get("zb") != node["code"] or not (dn.get("data") or {}).get("hasdata"):
+            continue
+        d, v = nbs_time(wds.get("sj", "")), num(dn["data"].get("data"))
+        if d and v is not None:
+            out.append((d, v))
+    return {"code": node["code"], "name": node.get("cname"), "unit": node.get("unit"), "obs": _sorted(out)}
+
+
+async def _nbs_query(client: httpx.AsyncClient, db: str, parent: str, periods: int = 240) -> dict[str, Any]:
+    import json as _json
+    import time as _time
+    dfwds = _json.dumps([{"wdcode": "zb", "valuecode": parent}, {"wdcode": "sj", "valuecode": f"LAST{periods}"}], separators=(",", ":"))
+    r = await client.get(NBS, params={"m": "QueryData", "dbcode": db, "rowcode": "zb", "colcode": "sj", "wds": "[]",
+                                      "dfwds": dfwds, "k1": str(int(_time.time() * 1000))}, headers=NBS_HEAD)
+    r.raise_for_status()
+    return r.json()
+
+
+async def nbs_resolve(client: httpx.AsyncClient, spec: dict[str, Any]) -> dict[str, Any]:
+    db, pid, trail = spec.get("db", "hgyd"), "zb", []
+    for kw in spec["path"]:
+        r = await client.post(NBS, data={"id": pid, "dbcode": db, "wdcode": "zb", "m": "getTree"}, headers=NBS_HEAD)
+        r.raise_for_status()
+        node = nbs_pick(r.json(), kw)
+        if not node:
+            raise SourceError(f"国家統計局: 分類「{kw}」が見つからない（{' > '.join(trail) or '最上位'}）")
+        pid = node["id"]
+        trail.append(node["name"])
+    found = parse_nbs(await _nbs_query(client, db, pid, 12), spec["leaf"])
+    return {"db": db, "parent": pid, "code": found["code"], "name": found["name"], "unit": found["unit"], "path": trail,
+            "resolved_at": dt.datetime.now().isoformat(timespec="seconds")}
+
+
+async def nbs_fetch(client: httpx.AsyncClient, resolved: dict[str, Any]) -> Obs:
+    return parse_nbs(await _nbs_query(client, resolved["db"], resolved["parent"]), code=resolved["code"])["obs"]
+
+
+# ---------------------------------------------------------------------------------------------------
+# UK — ONS time series (JSON) and the Bank of England database (CSV); Canada — Statistics Canada (WDS);
+# Brazil — Banco Central do Brasil (SGS). All without a key.
+# ---------------------------------------------------------------------------------------------------
+ONS = "https://www.ons.gov.uk"
+BOE = "https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp"
+STATCAN = "https://www150.statcan.gc.ca/t1/wds/rest/getDataFromVectorsAndLatestNPeriods"
+BCB = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados"
+_MON = {m: i + 1 for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"))}
+
+
+def parse_ons(obj: dict[str, Any]) -> Obs:
+    for key in ("months", "quarters", "years"):
+        rows = obj.get(key) or []
+        if rows:
+            out = []
+            for r in rows:
+                t = str(r.get("date", "")).upper().split()
+                v = num(r.get("value"))
+                if v is None or not t:
+                    continue
+                if key == "months" and len(t) == 2 and t[1][:3] in _MON:
+                    out.append((f"{t[0]}-{_MON[t[1][:3]]:02d}-01", v))
+                elif key == "quarters" and len(t) == 2 and t[1] in ("Q1", "Q2", "Q3", "Q4"):
+                    out.append((f"{t[0]}-{(int(t[1][1]) - 1) * 3 + 1:02d}-01", v))
+                elif key == "years":
+                    out.append((f"{t[0]}-01-01", v))
+            return _sorted(out)
+    raise SourceError(f"ONS: 想定外の応答（{str(obj)[:120]}）")
+
+
+async def ons(client: httpx.AsyncClient, code: str) -> Obs:
+    r = await client.get(f"{ONS}{code.rstrip('/')}/data")
+    if r.status_code == 404:
+        raise SourceError(f"ONS: 系列がない（{code}）")
+    r.raise_for_status()
+    return parse_ons(r.json())
+
+
+def parse_boe_csv(text: str) -> Obs:
+    rows = list(csv.reader(io.StringIO(text)))
+    if not rows or rows[0][0].strip().upper() != "DATE":
+        raise SourceError(f"BoE: 想定外の応答（{(text or '')[:80]!r}）")
+    out = []
+    for r in rows[1:]:
+        if len(r) >= 2:
+            try:
+                d = dt.datetime.strptime(r[0].strip(), "%d %b %Y").date().isoformat()
+            except ValueError:
+                continue
+            v = num(r[1])
+            if v is not None:
+                out.append((d, v))
+    return _sorted(out)
+
+
+async def boe(client: httpx.AsyncClient, code: str) -> Obs:
+    r = await client.get(BOE, params={"csv.x": "yes", "Datefrom": "01/Jan/1990", "Dateto": "now", "SeriesCodes": code, "CSVF": "TN",
+                                      "UsingCodes": "Y", "VPD": "Y", "VFD": "N"})
+    r.raise_for_status()
+    return parse_boe_csv(r.text)
+
+
+def parse_statcan(obj: Any) -> Obs:
+    first = obj[0] if isinstance(obj, list) and obj else {}
+    if first.get("status") != "SUCCESS":
+        raise SourceError(f"Statistics Canada: {str(first)[:160]}")
+    pts = (first.get("object") or {}).get("vectorDataPoint") or []
+    return _sorted([(d, v) for p in pts if (d := period_start(p.get("refPer"))) and (v := num(p.get("value"))) is not None])
+
+
+async def statcan(client: httpx.AsyncClient, code: str) -> Obs:
+    r = await client.post(STATCAN, json=[{"vectorId": int(str(code).lstrip("vV")), "latestN": 400}])
+    r.raise_for_status()
+    return parse_statcan(r.json())
+
+
+def parse_bcb(obj: Any) -> Obs:
+    if not isinstance(obj, list):
+        raise SourceError(f"BCB: {str(obj)[:160]}")
+    out = []
+    for o in obj:
+        m = re.fullmatch(r"(\d{2})/(\d{2})/(\d{4})", str(o.get("data", "")))
+        v = num(o.get("valor"))
+        if m and v is not None:
+            out.append((f"{m.group(3)}-{m.group(2)}-{m.group(1)}", v))
+    return _sorted(out)
+
+
+async def bcb(client: httpx.AsyncClient, code: str, daily: bool = False) -> Obs:
+    start = (dt.date.today() - dt.timedelta(days=365 * 9)) if daily else dt.date(2005, 1, 1)   # daily series: ≤ 10 years per call
+    r = await client.get(BCB.format(code=code), params={"formato": "json", "dataInicial": start.strftime("%d/%m/%Y"),
+                                                        "dataFinal": dt.date.today().strftime("%d/%m/%Y")})
+    r.raise_for_status()
+    return parse_bcb(r.json())

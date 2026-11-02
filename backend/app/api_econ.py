@@ -32,7 +32,8 @@ from .state import DATA_DIR, S
 
 log = logging.getLogger("econ")
 router = APIRouter(prefix="/api/econ")
-CONC = {"fred": 2, "estat": 2, "ecb": 2, "eurostat": 2, "wb": 2, "dbnomics": 2, "market": 3}
+CONC = {"fred": 2, "estat": 2, "ecb": 2, "eurostat": 2, "wb": 2, "dbnomics": 2, "nbs": 1, "ons": 2, "boe": 1, "statcan": 2, "bcb": 2,
+        "market": 3}
 DUE_H = {"D": 6, "W": 6, "M": 6, "Q": 12, "A": 48}     # hours between checks (new releases appear within ≈ 6 h)
 KEEP_FROM = {"D": "1990-01-01", "W": "1970-01-01"}
 _job: dict[str, Any] = {"running": False, "started": None, "finished": None, "total": 0, "done": 0, "ok": 0, "errors": 0,
@@ -125,6 +126,22 @@ async def fetch_entry(c: httpx.AsyncClient, e: dict[str, Any], rec: dict[str, An
         return await SRC.worldbank(c, code), {}
     if src == "dbnomics":
         return await SRC.dbnomics(c, code), {}
+    if src == "nbs":
+        spec_key = json.dumps(code, ensure_ascii=False, sort_keys=True)
+        resolved = e.get("resolved") or ((rec or {}).get("resolved") if ((rec or {}).get("resolved") or {}).get("spec") == spec_key else None)
+        if not resolved:
+            resolved = {**await SRC.nbs_resolve(c, code), "spec": spec_key}
+        obs = await SRC.nbs_fetch(c, resolved)
+        adj = code.get("adj") or 0
+        return [(d, v + adj) for d, v in obs], {"resolved": resolved}
+    if src == "ons":
+        return await SRC.ons(c, code), {}
+    if src == "boe":
+        return await SRC.boe(c, code), {}
+    if src == "statcan":
+        return await SRC.statcan(c, code), {}
+    if src == "bcb":
+        return await SRC.bcb(c, code, daily=e["freq"] == "D"), {}
     if src == "market":
         prov = (await S.provider(None)).name
         if prov == "sim":
@@ -443,6 +460,31 @@ async def dashboard_ep():
     return {**d, "country_names": CAT.COUNTRIES}
 
 
+@router.get("/matrix")
+async def matrix_ep():
+    """World matrix (Bloomberg ECST style): country × headline indicator → latest value, previous, change, z, date."""
+    today = dt.date.today()
+    eb = by_id()
+    rows = []
+    for cc, cols in CAT.MATRIX_ROWS.items():
+        cells: dict[str, Any] = {}
+        for col, ids in cols.items():
+            for i in ids:
+                e = eb.get(i)
+                rec = read_series(i) if e else None
+                if not e or not rec or rec.get("status") != "ok" or not (rec.get("metrics") or {}).get("last_date"):
+                    continue
+                r = _row(e, rec, today)
+                val = r.get("signal") if r.get("signal") is not None else r.get("last")
+                prev = r.get("signal_prev") if r.get("signal") is not None else r.get("prev")
+                cells[col] = {"id": i, "name": e["name"], "value": val, "prev": prev, "chg": val - prev if prev is not None else None,
+                              "date": r.get("signal_date") or r.get("last_date"), "z": r.get("z"), "good": e.get("good", 1),
+                              "axis": e["axis"], "pct": e["tf"] == "yoy" or e.get("unit") == "%", "stale": r.get("stale"), "freq": e["freq"]}
+                break
+        rows.append({"country": cc, "name": CAT.COUNTRIES.get(cc, cc), "cells": cells})
+    return {"columns": [{"key": k, "ja": ja, "en": en} for k, ja, en in CAT.MATRIX_COLS], "rows": rows}
+
+
 @router.get("/flows")
 async def flows_ep():
     d = _read("flows.json", None)
@@ -590,7 +632,7 @@ def _validate(x: dict[str, Any]) -> dict[str, Any]:
     for k, ok in (("freq", A.Z_WINDOW), ("tf", ("yoy", "lvl", "d1", "d12")), ("axis", CAT.AXES)):
         if e.get(k) not in ok:
             raise HTTPException(400, f"{k} が不正")
-    if e.get("source") not in ("fred", "estat", "ecb", "eurostat", "wb", "dbnomics", "market", "upload"):
+    if e.get("source") not in ("fred", "estat", "ecb", "eurostat", "wb", "dbnomics", "nbs", "ons", "boe", "statcan", "bcb", "market", "upload"):
         raise HTTPException(400, "source が不正")
     e.setdefault("country", "GLOBAL")
     e.setdefault("category", "景気・生産")

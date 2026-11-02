@@ -89,6 +89,7 @@ Yahoo への変換は `backend/app/providers/yahoo.py` の `to_yahoo()` で行�
 |---|---|---|---|
 | FRED（セントルイス連銀） | `fredgraph.csv?id=…`（鍵なし）／API（`FRED_API_KEY`） | `econ/sources.py`, ECST | 米国の統計の大半と BIS・IMF・OECD の転載。OECD 由来の一部は更新停止の可能性（画面で検出）。出典表示：Federal Reserve Bank of St. Louis |
 | e-Stat（政府統計の総合窓口） | REST API 3.0（`ESTAT_APP_ID`） | `econ/sources.py`, ECST | 表は検索で見つけて固定（ECON.md §2）。利用規約に従いクレジットを表示 |
+| 中国国家統計局（data.stats.gov.cn）／英国 ONS／イングランド銀行／カナダ統計局／ブラジル中銀 | 各公式サイトの公開 API・データ（鍵なし） | `econ/sources.py`, ECST | 中国は指標の木を名前でたどって指標コードを決める。いずれも未検証（この環境は通信制限） |
 | ECB Data Portal／Eurostat／世界銀行／DBnomics | SDMX csv／JSON-stat／JSON | `econ/sources.py`, ECST | 鍵なし |
 | 財務省 対外対内証券投資・JPX 投資部門別 | ファイル取り込み（ECST → SOURCES） | `api_econ.py` | 形式は日付の列と数値の列を自動で検出 |
 | JPX 決算発表予定日一覧 | 一覧ページの xlsx をダウンロード（`config.jpx_index`）、またはユーザーがアップロード | `earnings.py`, `api_earnings.py`, COV・STK | 見出しを文字で判定（決算発表予定日／コード／決算期末／種別）。**ダウンロードは未検証**（この環境では通信が拒否された）。決算日と決算期末月の公式な出所 |
