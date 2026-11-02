@@ -204,3 +204,19 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .prop-tile .prop-label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .prop-cz { position: absolute; right: 4px; bottom: 2px; font-size: 10px; }
 @media (max-width: 900px) { .prop-head, .prop-row { grid-template-columns: 80px 1fr; } .prop-cell, .prop-tier { grid-column: 2; } }
+
+/* ---- TRIN (Trinity framework) ---- */
+.inp.num { width: 56px; text-align: right; }
+.inp.warnbg { background: #3a2a00; }
+.trin-pipe { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
+.trin-layer h4 { color: var(--amber, #ffa028); }
+.trin-split { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
+.trin-score td { padding-top: 1px; padding-bottom: 1px; }
+.trin-score td.l { white-space: normal; font-size: 11px; }
+.trin-moat label { display: block; padding: 2px 0; }
+.trin-text { display: grid; grid-template-columns: 260px 1fr; gap: 4px; margin-top: 3px; }
+.trin-text textarea { height: 22px; resize: vertical; }
+.trin-total > div { margin-top: 3px; }
+.trin-curve { width: 100%; height: 130px; background: #000; border: 1px solid #1a1a1a; margin: 4px 0; }
+.glq { width: 100%; max-width: 320px; background: #000; border: 1px solid #222; }
+.trin-split td.l { white-space: normal; }

@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { fmtNum, fmtPct } from '../lib/format';
 import { Bars, ErrorBox, Loading, useAsync } from '../components/ui';
 import { LineChart } from '../components/LineChart';
+import { GLPanel } from './Trinity';
 
 // ---------------------------------------------------------------- CYCL
 export function CYCL({ symbol }: { symbol: string }) {
@@ -325,6 +326,12 @@ export function MACRO() {
               </table>
             </div>
           )}
+          {d.growth_liquidity && !d.growth_liquidity.error && (
+            <div className="box" style={{ margin: 6 }}>
+              <h4>成長 × 流動性 4象限（Market Timing の一次シグナル）— GLQ</h4>
+              <GLPanel gl={d.growth_liquidity} />
+            </div>
+          )}
           {d.dashboard.map((g: any) => (
             <div key={g.group} className="box" style={{ margin: 6 }}>
               <h4>{g.group}</h4>
@@ -455,3 +462,182 @@ export function MRGN({ symbol, onPick }: { symbol: string; onPick: (s: string) =
     </div>
   );
 }
+
+// ---------------------------------------------------------------- TXT (transcripts)
+export function TXT({ symbol }: { symbol: string }) {
+  const list = useAsync(() => api.get<any>(`/transcripts/${encodeURIComponent(symbol)}`), [symbol]);
+  const [sel, setSel] = useState<string | undefined>();
+  const items: any[] = list.data?.items || [];
+  const an = useAsync(() => (items.length ? api.get<any>(`/transcripts/${encodeURIComponent(symbol)}/analyze`, { id: sel }) : Promise.resolve(null)), [symbol, sel, items.length]);
+  const [period, setPeriod] = useState('');
+  const [text, setText] = useState('');
+  const [brief, setBrief] = useState('');
+  const [val, setVal] = useState<any>(null);
+  const [pack, setPack] = useState('');
+  const [tab, setTab] = useState<'DIFF' | 'QA' | 'NUM' | 'BRIEF'>('DIFF');
+  const d = an.data;
+  const add = async () => {
+    await api.post(`/transcripts/${encodeURIComponent(symbol)}`, { period, text });
+    setText(''); setPeriod(''); list.reload();
+  };
+  const sid = (i: number) => d?.sentences?.[i]?.text ?? '';
+  return (
+    <div>
+      <div className="toolbar">
+        <span className="lbl">PERIODS</span>
+        {items.map((t) => (
+          <button key={t.id} className={`tb ${(sel ?? items[items.length - 1]?.id) === t.id ? 'on' : ''}`} onClick={() => setSel(t.id)}>{t.period}</button>
+        ))}
+        {(['DIFF', 'QA', 'NUM', 'BRIEF'] as const).map((x) => <button key={x} className={`tb ${tab === x ? 'on' : ''}`} onClick={() => setTab(x)}>{x}</button>)}
+      </div>
+      <details className="pad" open={!items.length}>
+        <summary className="amber">+ 決算説明会・スモールミーティングの書き起こしを追加（ATLAS の文字起こしを貼り付け）</summary>
+        <div className="toolbar"><span className="lbl">PERIOD</span><input className="inp" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="2026Q2" /><button className="tb on" disabled={!period || !text} onClick={add}>SAVE</button>
+          <span className="muted">Q&amp;A は「Q:」「A:」または「質問：」「回答：」で始めると回避度を判定します</span></div>
+        <textarea className="inp" style={{ width: '100%', height: 120 }} value={text} onChange={(e) => setText(e.target.value)} />
+      </details>
+      {an.loading && <Loading />}
+      <ErrorBox error={an.error || list.error} />
+      {d && (
+        <>
+          <div className="kv" style={{ gridTemplateColumns: 'repeat(2, max-content 1fr)' }}>
+            <span>NET TONE</span><span className={d.tone.net_tone > 0 ? 'up' : 'down'}>{fmtNum(d.tone.net_tone, 2)} {d.tone_change != null && <span className="muted">(Δ {fmtNum(d.tone_change, 2)})</span>}</span>
+            <span>UNCERTAINTY /1k</span><span>{fmtNum(d.tone.uncertainty_per_1k, 1)} {d.uncertainty_change != null && <span className="muted">(Δ {fmtNum(d.uncertainty_change, 1)})</span>}</span>
+            <span>LAZY-PRICES CHANGE</span><span className="yellow">{d.diff ? fmtNum(d.diff.change_score, 3) : '— (前期なし)'}</span>
+            <span>Q&amp;A EVASIVENESS</span><span className={d.evasiveness_avg >= 0.6 ? 'down' : d.evasiveness_avg >= 0.4 ? 'yellow' : 'up'}>{d.evasiveness_avg != null ? fmtNum(d.evasiveness_avg, 2) : '--'}</span>
+            <span>vs</span><span className="muted">{d.prev_period ?? '—'} → {d.period}</span>
+          </div>
+          {d.history.length > 1 && (
+            <table className="t"><thead><tr><th className="l">PERIOD</th><th>CHANGE (1−cos)</th><th>NET TONE</th><th>UNC/1k</th></tr></thead>
+              <tbody>{d.history.map((h: any) => <tr key={h.period}><td className="l amber">{h.period}</td><td>{fmtNum(h.change_score, 3)}</td><td>{fmtNum(h.net_tone, 2)}</td><td>{fmtNum(h.uncertainty_per_1k, 1)}</td></tr>)}</tbody></table>
+          )}
+          {tab === 'DIFF' && d.diff && (
+            <div className="trin-split">
+              <div className="box" style={{ margin: 6, flex: 1 }}><h4>NEW — 今回新たに出てきた文 ({d.diff.new_count})</h4>
+                {d.diff.new_sentences.map((s: any) => <div key={s.sid} className={`pad ${s.tone > 0 ? 'up' : s.tone < 0 ? 'down' : ''}`}>[S{s.sid}] {s.text}</div>)}</div>
+              <div className="box" style={{ margin: 6, flex: 1 }}><h4>DROPPED — 前回あって今回消えた文 ({d.diff.dropped_count})</h4>
+                {d.diff.dropped_sentences.map((s: any) => <div key={s.sid} className="pad muted">{s.text}</div>)}</div>
+              <div className="note" style={{ flexBasis: '100%' }}>{d.diff.note}</div>
+            </div>
+          )}
+          {tab === 'DIFF' && !d.diff && <div className="note">前期の書き起こしを保存すると、言語変化（Lazy Prices）を計測します。</div>}
+          {tab === 'QA' && (
+            <table className="t"><thead><tr><th>SCORE</th><th className="l">Q</th><th className="l">A</th><th className="l">回避フレーズ</th></tr></thead>
+              <tbody>{d.qa.map((q: any, i: number) => (
+                <tr key={i}><td className={q.score >= 0.6 ? 'down' : q.score >= 0.4 ? 'yellow' : 'up'}>{fmtNum(q.score, 2)} {q.label}</td><td className="l">{q.q}</td><td className="l">{q.a}</td><td className="l muted">{q.non_answer_phrases.join(', ')}</td></tr>
+              ))}</tbody></table>
+          )}
+          {tab === 'NUM' && (
+            <table className="t"><thead><tr><th>S#</th><th>VALUE</th><th>UNIT</th><th>GUIDE</th><th className="l">CONTEXT</th></tr></thead>
+              <tbody>{d.numbers.map((n: any, i: number) => (
+                <tr key={i}><td className="muted">S{n.sid}</td><td className="amber">{fmtNum(n.value, Math.abs(n.value) < 100 ? 2 : 0)}</td><td>{n.unit}</td><td className={n.guidance ? 'yellow' : 'muted'}>{n.guidance ? '見通し' : ''}</td><td className="l">{n.context}</td></tr>
+              ))}</tbody></table>
+          )}
+          {tab === 'BRIEF' && (
+            <div className="pad">
+              <div className="note">AIに書かせる Bull/Bear ブリーフを「出典 [S#] 必須・出典にない数字は禁止」で検証するハーネス。① プロンプトをコピーしてAIへ → ② 回答を貼り付けて VALIDATE。</div>
+              <button className="tb" onClick={async () => { const p = await api.get<any>(`/transcripts/${encodeURIComponent(symbol)}/brief_pack`, { id: sel }); setPack(p.prompt); navigator.clipboard?.writeText(p.prompt).catch(() => {}); }}>① COPY PROMPT</button>
+              {pack && <span className="muted"> copied ({pack.length} chars)</span>}
+              <textarea className="inp" style={{ width: '100%', height: 140, marginTop: 4 }} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder={'## Bull\n- … [S3]\n## Bear\n- … [S7]'} />
+              <button className="tb on" disabled={!brief} onClick={async () => setVal(await api.post<any>(`/transcripts/${encodeURIComponent(symbol)}/validate_brief`, { brief, id: sel }))}>② VALIDATE</button>
+              {val && (
+                <>
+                  <div className={val.ok ? 'up' : 'down'}>{val.ok ? '✓ 全行が出典と整合' : `✕ ${val.violations}/${val.checked} 行に問題`}</div>
+                  <table className="t"><tbody>{val.lines.map((l: any, i: number) => (
+                    <tr key={i}><td className={l.ok ? 'up' : 'down'}>{l.ok ? '✓' : '✕'}</td><td className="l">{l.line}<div className="muted" style={{ fontSize: 10 }}>{l.cites.map((c: number) => `[S${c}] ${sid(c)}`).join(' / ')}</div></td><td className="l down">{l.problems.join('; ')}</td></tr>
+                  ))}</tbody></table>
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- TRND (Google Trends / X / StockTwits)
+export function TRND({ symbol }: { symbol: string }) {
+  const [kw, setKw] = useState('');
+  const [geo, setGeo] = useState('JP');
+  const [tf, setTf] = useState('today 12-m');
+  const [link, setLink] = useState(true);
+  const [q, setQ] = useState<any>(null);
+  const gt = useAsync(() => (q ? api.get<any>('/trends/google', q) : Promise.resolve(null)), [q]);
+  const [xq, setXq] = useState('');
+  const [xr, setXr] = useState<any>(null);
+  const [xe, setXe] = useState('');
+  const st = useAsync(() => api.get<any>('/social/stocktwits', { symbol: symbol.includes(':') && !/^(NASDAQ|NYSE|AMEX)/.test(symbol) ? undefined : symbol }), [symbol]);
+  const d = gt.data;
+  const lines = d ? Object.entries(d.series).map(([k, s]: any, i) => ({ name: k, data: s.map((p: any) => ({ time: p.time, value: p.value })), color: ['#ffa028', '#59e3ff', '#ff6ad5', '#2fd17a', '#ffd84a'][i] })) : [];
+  return (
+    <div>
+      <div className="toolbar">
+        <span className="lbl">GOOGLE TRENDS</span>
+        <input className="inp" style={{ width: 220 }} value={kw} onChange={(e) => setKw(e.target.value)} placeholder="keyword1, keyword2 (≤5)" />
+        <select className="inp" value={geo} onChange={(e) => setGeo(e.target.value)}>{['', 'JP', 'US', 'CN', 'KR', 'TW'].map((g) => <option key={g} value={g}>{g || 'WORLD'}</option>)}</select>
+        <select className="inp" value={tf} onChange={(e) => setTf(e.target.value)}>{['now 7-d', 'today 1-m', 'today 3-m', 'today 12-m', 'today 5-y'].map((t) => <option key={t}>{t}</option>)}</select>
+        <label className="muted"><input type="checkbox" checked={link} onChange={(e) => setLink(e.target.checked)} /> vs {symbol}</label>
+        <button className="tb on" disabled={!kw.trim()} onClick={() => setQ({ keywords: kw, geo, timeframe: tf, symbol: link ? symbol : undefined })}>GO</button>
+      </div>
+      {gt.loading && <Loading />}
+      <ErrorBox error={gt.error} />
+      {d && (
+        <>
+          <LineChart lines={lines} height={220} />
+          <table className="t">
+            <thead><tr><th className="l">KEYWORD</th><th>SPIKE z</th><th>MOMENTUM</th><th>vs PRICE: best lead</th><th>contemp. corr</th><th>Granger att→px p</th></tr></thead>
+            <tbody>{d.keywords.map((k: string) => {
+              const sp = d.spikes[k];
+              const vp = d.vs_price?.[k];
+              return (
+                <tr key={k}><td className="l amber">{k}</td><td className={sp?.z > 2 ? 'down' : ''}>{fmtNum(sp?.z, 2)}</td><td>{sp?.momentum != null ? fmtPct(sp.momentum * 100, 0) : '--'}</td>
+                  <td>{vp?.best_lead ? `lag ${vp.best_lead.lag} · r ${fmtNum(vp.best_lead.corr, 2)}` : vp?.error || '--'}</td><td>{fmtNum(vp?.contemporaneous, 2)}</td><td>{fmtNum(vp?.granger_attention_to_price?.p, 3)}</td></tr>
+              );
+            })}</tbody>
+          </table>
+          {d.related && (
+            <div className="trin-split">
+              {Object.entries(d.related).map(([k, r]: any) => (
+                <div key={k} className="box" style={{ margin: 6, flex: 1 }}>
+                  <h4>{k} — RISING / TOP queries</h4>
+                  <table className="t"><tbody>{r.rising.map((x: any) => <tr key={'r' + x.query}><td className="l yellow">{x.query}</td><td>{x.value}</td></tr>)}
+                    {r.top.slice(0, 8).map((x: any) => <tr key={'t' + x.query}><td className="l muted">{x.query}</td><td className="muted">{x.value}</td></tr>)}</tbody></table>
+                </div>
+              ))}
+            </div>
+          )}
+          {d.vs_price_error && <div className="note">price: {d.vs_price_error}</div>}
+        </>
+      )}
+      <div className="toolbar">
+        <span className="lbl">X (Twitter)</span>
+        <input className="inp" style={{ width: 220 }} value={xq} onChange={(e) => setXq(e.target.value)} placeholder="$NVDA OR 半導体" />
+        <button className="tb" disabled={!xq} onClick={async () => { setXe(''); try { setXr(await api.get<any>('/social/x', { query: xq })); } catch (e: any) { setXe(e.message); } }}>GO</button>
+        <span className="muted">要 X_BEARER_TOKEN（有料 API）</span>
+      </div>
+      {xe && <div className="err">{xe}</div>}
+      {xr && (
+        <div className="trin-split">
+          <div style={{ flex: 1 }}><LineChart height={140} lines={[{ name: 'posts/day', data: xr.series.map((p: any) => ({ time: ts2(p.date), value: p.value })), color: '#59e3ff' }]} /></div>
+          <div style={{ flex: 1 }} className="pad">
+            spike z {fmtNum(xr.spike?.z, 2)} · bullish {fmtPct(xr.sentiment.bullish_share, 0, false)} ({xr.sentiment.with_signal}/{xr.sentiment.posts})
+            {xr.top_posts.map((p: any, i: number) => <div key={i} className="muted" style={{ fontSize: 11 }}>♥{p.weight} {p.text.slice(0, 140)}</div>)}
+          </div>
+        </div>
+      )}
+      <div className="box" style={{ margin: 6 }}>
+        <h4>STOCKTWITS {st.data?.symbol ? `— ${st.data.symbol}` : '— trending'}</h4>
+        <ErrorBox error={st.error} />
+        {st.data?.trending && <div className="pad">{st.data.trending.map((t: any) => <span key={t.symbol} className="amber" style={{ marginRight: 10 }}>{t.symbol}<span className="muted"> {fmtNum(t.watchers, 0)}</span></span>)}</div>}
+        {st.data?.sentiment && (
+          <div className="pad">watchers {fmtNum(st.data.watchers, 0)} · bullish {fmtPct(st.data.sentiment.bullish_share, 0, false)} ({st.data.sentiment.with_signal} labelled)
+            {st.data.recent.slice(0, 8).map((p: any, i: number) => <div key={i} className={p.label === 'Bullish' ? 'up' : p.label === 'Bearish' ? 'down' : 'muted'} style={{ fontSize: 11 }}>{p.label || '·'} {p.text.slice(0, 160)}</div>)}
+          </div>
+        )}
+      </div>
+      <div className="note">PROP の第1段（ニッチ／マクロ専門家）で起きた変化が、検索・SNS の関心（第2〜3段）に波及しているかの確認に使う。Google Trends は非公式エンドポイント（仕様変更で失敗し得る）。</div>
+    </div>
+  );
+}
+const ts2 = (d: string) => Math.floor(Date.parse(d) / 1000);

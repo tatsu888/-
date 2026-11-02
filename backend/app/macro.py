@@ -387,10 +387,10 @@ GL_INPUTS = {
 }
 # Notion: 時計回りに 4 → 1 → 2 → 3 と巡る
 GL_QUADRANTS = {
-    1: {"name": "1. 回復", "pos": "右上", "liq": "緩和", "growth": "拡大／回復", "assets": "テック／シクリカル／日本／中国／EM"},
-    2: {"name": "2. ピーキング", "pos": "右下", "liq": "引き締め", "growth": "拡大／回復", "assets": "ベータ／EM／コモディティ／バリュー"},
-    3: {"name": "3. スローダウン", "pos": "左下", "liq": "引き締め", "growth": "減速", "assets": "ディフェンシブ／クオリティ／ゴールド／債券／DXY"},
-    4: {"name": "4. ボトミング", "pos": "左上", "liq": "緩和", "growth": "減速", "assets": "テック／グロース／日本／欧州／中国"},
+    1: {"name": "1. 回復", "pos": "右上", "liq_label": "緩和", "growth_label": "拡大／回復", "assets": "テック／シクリカル／日本／中国／EM"},
+    2: {"name": "2. ピーキング", "pos": "右下", "liq_label": "引き締め", "growth_label": "拡大／回復", "assets": "ベータ／EM／コモディティ／バリュー"},
+    3: {"name": "3. スローダウン", "pos": "左下", "liq_label": "引き締め", "growth_label": "減速", "assets": "ディフェンシブ／クオリティ／ゴールド／債券／DXY"},
+    4: {"name": "4. ボトミング", "pos": "左上", "liq_label": "緩和", "growth_label": "減速", "assets": "テック／グロース／日本／欧州／中国"},
 }
 GL_NEXT = {4: 1, 1: 2, 2: 3, 3: 4}
 GL_ASSETS = {"Tech QQQ": "NASDAQ:QQQ", "Cyclicals XLI": "AMEX:XLI", "Defensive XLP": "AMEX:XLP", "Japan TOPIX": "TVC:TOPIX",
