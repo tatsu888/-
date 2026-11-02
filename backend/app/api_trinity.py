@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/trinity")
 SCAN_COLS = ["description", "currency", "market_cap_basic", "sector", "industry", "beta_1_year",
              "price_earnings_ttm", "enterprise_value_ebitda_ttm", "dividend_yield_recent", "return_on_equity",
              "gross_margin", "operating_margin", "debt_to_equity", "total_revenue_yoy_growth_ttm", "free_cash_flow",
-             "float_shares_outstanding", "total_shares_outstanding"]
+             "float_shares_outstanding", "total_shares_outstanding", "earnings_release_next_date"]
 SCAN_FALLBACK = ["description", "currency", "market_cap_basic", "sector", "industry", "beta_1_year",
                  "price_earnings_ttm", "dividend_yield_recent", "return_on_equity", "gross_margin", "operating_margin",
                  "debt_to_equity"]
@@ -141,7 +141,9 @@ async def run_once(source: str | None = None) -> dict[str, Any]:
                 inputs[s] = {"bars": bars, "scan": sc, "margin": margin,
                              "risk_free": rf.get("TVC:JP10Y" if s.startswith(("TSE:", "OSE:")) else "TVC:US10Y"),
                              "mcap_usd": mc * r if mc and r else None}
+            await _enrich(inputs, syms, scan, series, source, errors)
             snap = T.evaluate(inputs, gl if not gl.get("error") else None, _scorecard_summary())
+            snap["themes"], snap["sectors"] = await _themes_and_sectors(source, errors)
             snap.pop("rules", None)
             snap.update({"generated_at": T.now_iso(), "source": source or S.registry.active_name, "universe": len(syms),
                          "errors": errors, "seconds": round(time.time() - t0, 1)})
@@ -163,6 +165,73 @@ async def run_once(source: str | None = None) -> dict[str, Any]:
             raise
         finally:
             _state["running"] = False
+
+
+def _days_to(ts: Any) -> int | None:
+    try:
+        v = float(ts)
+    except (TypeError, ValueError):
+        return None
+    if v > 1e12:
+        v /= 1000
+    return (T.dt.datetime.fromtimestamp(v, tz=T.dt.timezone.utc).date() - T.dt.date.today()).days
+
+
+_SECTOR_CACHE: dict[str, Any] = {}
+
+
+async def _enrich(inputs: dict[str, dict[str, Any]], syms: list[str], scan: dict[str, Any], series: dict[str, Any],
+                  source: str | None, errors: dict[str, str]) -> None:
+    """XRAY (company-specific share), sector rotation of each stock's sector ETF, days to earnings."""
+    from . import rrg, xray
+    from .api_insight import RRG_SETS, xray_from_series, xray_symbols_needed
+
+    sectors = {s: xray.sector_etf(s, (scan.get(s) or {}).get("sector"), (scan.get(s) or {}).get("industry")) for s in syms}
+    need = xray_symbols_needed(syms, sectors) - set(series)
+    regions = {xray.region(s) for s in syms}
+    for r in regions:
+        key = "JP17" if r == "JP" else "US11"
+        need |= set(RRG_SETS[key]["items"]) | {RRG_SETS[key]["bench"]}
+    extra, err = await _many(sorted(need - set(series)), "1D", 800, source)
+    errors.update({f"factor {k}": v for k, v in err.items()})
+    allser = {**series, **extra}
+    xr, _, xerr = xray_from_series(syms, sectors, allser, 252)
+    q: dict[str, dict[str, Any]] = {}
+    for r in regions:
+        key = "JP17" if r == "JP" else "US11"
+        cfg = RRG_SETS[key]
+        if cfg["bench"] in allser:
+            res = rrg.analyze({e: allser[e] for e in cfg["items"] if e in allser}, allser[cfg["bench"]], cfg["items"])
+            _SECTOR_CACHE[key] = [{k: x.get(k) for k in ("symbol", "label", "quadrant", "quadrant_ja", "ratio", "momentum",
+                                                             "rel_4w_pct", "value_ratio", "flow_view")} for x in res["rows"] if "quadrant" in x]
+            for x in res["rows"]:
+                if "quadrant" in x:
+                    q[x["symbol"]] = {"etf": x["symbol"], "label": x["label"], "quadrant": x["quadrant"]}
+    for s in syms:
+        etf = sectors.get(s)
+        inputs[s]["sector_rrg"] = q.get(etf) if etf else None
+        if s in xr:
+            inputs[s]["xray"] = {**xr[s]["shares"], "verdict": xr[s]["verdict"]}
+        inputs[s]["days_to_earnings"] = _days_to((scan.get(s) or {}).get("earnings_release_next_date"))
+
+
+async def _themes_and_sectors(source: str | None, errors: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    from .api_insight import theme_compute
+
+    out = []
+    for t in (S.store.get("themes") or [])[:20]:
+        try:
+            r = await theme_compute(t, source)
+        except Exception as e:  # noqa: BLE001
+            errors[f"theme {t.get('name')}"] = str(e)
+            continue
+        if r.get("error"):
+            errors[f"theme {t.get('name')}"] = r["error"]
+            continue
+        out.append({"id": t["id"], "name": t.get("name"), "phase": r["phase"], "spread_z": r["spread_z"],
+                    "driver_z": r["driver"]["z"], "basket_flow": r["flow"]["dominant"], "perf_1m": r["perf_bn_pct"].get("1M"),
+                    "flags": r["flags"][:2]})
+    return out, dict(_SECTOR_CACHE)
 
 
 async def loop(first_delay: float = 20.0) -> None:

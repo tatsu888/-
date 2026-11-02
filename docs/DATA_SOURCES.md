@@ -94,6 +94,12 @@ Yahoo への変換は `backend/app/providers/yahoo.py` の `to_yahoo()` で行�
 | 決算説明会の書き起こし | ユーザーが貼り付け（ATLAS の文字起こし等） | `transcripts.py`, `TXT` | 外部取得なし |
 | 成長×流動性・MACRO の系列 | TradingView / Yahoo の価格（銅・金・金利・DXY・HYG/IEF） | `macro.py` | 記号は未検証のものを含む（`python -m app.diagnose` で確認） |
 
+### 業種 ETF（XRAY・RRG・THEME のテンプレート、未検証）
+- TOPIX-17 業種 ETF（NEXT FUNDS）：`TSE:1617`〜`TSE:1633`（食品、エネルギー資源、建設・資材、素材・化学、医薬品、自動車・輸送機、鉄鋼・非鉄、機械、電機・精密、情報通信・サービスその他、電力・ガス、運輸・物流、商社・卸売、小売、銀行、金融（除く銀行）、不動産）
+- 米国セクター：`AMEX:XLK` `XLF` `XLE` `XLV` `XLI` `XLY` `XLP` `XLU` `XLB` `XLRE` `XLC`
+- スタイル・マクロ因子：`TSE:2516`、`TSE:1489`、`NASDAQ:SOXX`、`AMEX:FXI`、`AMEX:IWM` `IWD` `IWF`、`BATS:MTUM` `USMV`
+- TradingView のセクター名 → 業種 ETF の対応は `xray.py` の `_JP_BY_SECTOR` / `_US_BY_SECTOR`（近似）
+
 ## ネットワーク環境のメモ
 
 開発に使ったクラウドコンテナでは、外向き通信がポリシーで制限されていました（パッケージレジストリのみ許可）。TradingView と Yahoo のホストを許可する場合は、環境設定の Network access で、次のドメインを Allowed domains に追加します（https://code.claude.com/docs/en/cloud-environments#network-access）。

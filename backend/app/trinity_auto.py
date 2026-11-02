@@ -207,9 +207,14 @@ def verdict(f_dir: str, m_view: int, l_view: int, vol: float | None, *, moat_qua
             "agree": agree, "oppose": oppose, "flags": flags}
 
 
-def auto_gates(f_dir: str, m_view: int, l_view: int, size: float) -> dict[str, str]:
+def sector_against(fv: int, sector_q: str | None) -> bool:
+    """RRG of the stock's sector ETF works against the position (long in Lagging / short in Leading)."""
+    return (fv > 0 and sector_q == "Lagging") or (fv < 0 and sector_q == "Leading")
+
+
+def auto_gates(f_dir: str, m_view: int, l_view: int, size: float, sector_q: str | None = None) -> dict[str, str]:
     fv = 1 if f_dir == "LONG" else -1 if f_dir == "SHORT" else 0
-    return {"①マクロ": "PASS" if fv and m_view != -fv else "FAIL" if fv else "—",
+    return {"①マクロ": "PASS" if fv and m_view != -fv and not sector_against(fv, sector_q) else "FAIL" if fv else "—",
             "②ファンダ": "PASS" if fv else "FAIL",
             "③需給": "PASS" if fv and l_view != -fv else "FAIL" if fv else "—",
             "④サイズ": "PASS" if size > 0 else "FAIL" if fv else "—"}
@@ -245,10 +250,22 @@ def evaluate(inputs: dict[str, dict[str, Any]], gl: dict[str, Any] | None, score
             v60 = sum(float(b.get("volume") or 0) for b in bars[-80:-20]) / 60
             sm_in["volume_trend"] = v20 / v60 if v60 else None
         sm = F.short_models(sm_in)
+        # extra context (filled by the runner when available): sector rotation, XRAY, catalyst
+        srrg = d.get("sector_rrg") or None
+        xr = d.get("xray") or None
+        dte = d.get("days_to_earnings")
+        fv = 1 if v["direction"] == "LONG" else -1 if v["direction"] == "SHORT" else 0
+        if fv and srrg and sector_against(fv, srrg.get("quadrant")):
+            v["flags"].append(f"セクター・フローが逆行（{srrg.get('label') or srrg.get('etf')}: RRG {srrg.get('quadrant')}）")
+        if fv and xr and xr.get("idio") is not None and xr["idio"] < 0.3:
+            v["flags"].append(f"個別要因 {xr['idio'] * 100:.0f}%（マクロ・セクターに上書きされやすい）→ ペア／ヘッジで持つ")
+        if fv < 0 and dte is not None:
+            v["flags"].append(f"カタリスト: 決算まで {dte} 日" if 0 <= dte <= 30 else "30日以内に決算なし — カタリスト要確認")
         rows.append({
             "symbol": s, "name": sc.get("description"), "sector": sc.get("sector"),
             "f": {"score": f_score, "source": f_src, "direction": f_dir, "detail": rule.get(s) if f_src == "RULE" else None},
-            "m": m, "l": fl, **v, "gates": auto_gates(f_dir, m["view"], fl["view"], v["size_pct"]),
+            "m": m, "l": fl, **v, "gates": auto_gates(f_dir, m["view"], fl["view"], v["size_pct"], (srrg or {}).get("quadrant")),
+            "sector_rrg": srrg, "xray": xr, "days_to_earnings": dte,
             "short_models": [x["name"] for x in sm["models"] if x["status"] == "MATCH"],
             "last": bars[-1]["close"] if bars else None,
         })
@@ -274,6 +291,11 @@ def diff(prev: dict[str, Any] | None, cur: dict[str, Any]) -> list[dict[str, Any
     if pq and cq and pq != cq:
         out.append({"symbol": "*MACRO*", "what": "quadrant", "from": (prev.get("quadrant") or {}).get("name"),
                     "to": (cur.get("quadrant") or {}).get("name")})
+    oth = {t["id"]: t for t in prev.get("themes", []) or []}
+    for t in cur.get("themes", []) or []:
+        o = oth.get(t["id"])
+        if o and o.get("phase") != t.get("phase"):
+            out.append({"symbol": f"THEME {t['name']}", "what": "theme", "from": o.get("phase"), "to": t.get("phase")})
     for r in cur.get("rows", []):
         o = old.get(r["symbol"])
         if not o:

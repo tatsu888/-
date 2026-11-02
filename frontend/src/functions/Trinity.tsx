@@ -10,6 +10,7 @@ import { api } from '../lib/api';
 import { fmtBig, fmtNum, fmtPct } from '../lib/format';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { LineChart } from '../components/LineChart';
+import { takeKellyPrefill } from './Insight';
 
 export const TRIN_TABS = ['AUTO', 'MAP', 'SCORE', 'KELLY', 'RULE', 'PAIR', 'SHRT', 'CHIP', 'GATE', 'GLQ'] as const;
 type Tab = (typeof TRIN_TABS)[number];
@@ -53,6 +54,8 @@ export function TRIN({ symbol, tab: initial, onPick }: { symbol: string; tab?: s
 }
 
 // ---------------------------------------------------------------- AUTO (rule-based, scheduled)
+const RQC: Record<string, string> = { Leading: '#2fd17a', Weakening: '#ffd84a', Lagging: '#ff4545', Improving: '#5ea9ff' };
+const RQJ: Record<string, string> = { Leading: '主導', Weakening: '減速', Lagging: '劣後', Improving: '改善' };
 const vSym = (v: number) => (v > 0 ? <span className="up">▲</span> : v < 0 ? <span className="down">▼</span> : <span className="muted">·</span>);
 
 function AutoTab({ symbol, onPick, go }: { symbol: string; onPick?: (s: string) => void; go: (t: Tab) => void }) {
@@ -115,15 +118,18 @@ function AutoTab({ symbol, onPick, go }: { symbol: string; onPick?: (s: string) 
             <span>BOOK (rule)</span><span>L {snap.book.longs} / S {snap.book.shorts} · G {fmtPct(snap.book.gross_pct, 1, false)} · <span className={snap.book.net_ok ? 'up' : 'down'}>N {fmtPct(snap.book.net_pct, 1)}</span></span>
           </div>
           <div className="trin-split">
-            <div style={{ flex: 3, minWidth: 520 }}>
-              <table className="t">
-                <thead><tr><th className="l">SYMBOL</th><th>F</th><th>src</th><th>M</th><th>需給</th><th>VERDICT</th><th>確信</th><th>SIZE</th><th>①②③④</th><th className="l">FLAGS</th></tr></thead>
+            <div style={{ flex: 3, minWidth: 520, overflowX: 'auto' }}>
+              <table className="t nowrap">
+                <thead><tr><th className="l">SYMBOL</th><th>F</th><th>src</th><th>M</th><th>需給</th><th>SECT</th><th>固有</th><th>決算</th><th>VERDICT</th><th>確信</th><th>SIZE</th><th>①②③④</th><th className="l">FLAGS</th></tr></thead>
                 <tbody>
                   {rows.map((x: any) => (
                     <tr key={x.symbol} className={(sel || symbol) === x.symbol ? 'sel' : ''} style={{ cursor: 'pointer' }} onClick={() => { setSel(x.symbol); onPick?.(x.symbol); }}>
                       <td className="l amber">{x.symbol}<span className="muted"> {(x.name || '').slice(0, 14)}</span></td>
                       <td className={dirCls(x.f.direction)}>{fmtNum(x.f.score, 2)}</td><td className="muted">{x.f.source}</td>
                       <td>{vSym(x.m.view)}</td><td>{vSym(x.l.view)}</td>
+                      <td style={{ color: RQC[x.sector_rrg?.quadrant] || '#777' }} title={x.sector_rrg ? `${x.sector_rrg.label} ${x.sector_rrg.quadrant}` : ''}>{x.sector_rrg ? RQJ[x.sector_rrg.quadrant] : '·'}</td>
+                      <td className={x.xray?.idio != null && x.xray.idio < 0.3 ? 'down' : 'muted'}>{x.xray?.idio != null ? Math.round(x.xray.idio * 100) : ''}</td>
+                      <td className={x.days_to_earnings != null && x.days_to_earnings >= 0 && x.days_to_earnings <= 30 ? 'yellow' : 'muted'}>{x.days_to_earnings != null && x.days_to_earnings >= 0 ? `${x.days_to_earnings}d` : ''}</td>
                       <td className={dirCls(x.direction)}>{x.direction}</td>
                       <td>{'●'.repeat(x.conviction)}<span className="muted">{'○'.repeat(3 - x.conviction)}</span></td>
                       <td className="yellow">{x.size_pct ? fmtPct(x.size_pct, 2, false) : ''}</td>
@@ -151,6 +157,23 @@ function AutoTab({ symbol, onPick, go }: { symbol: string; onPick?: (s: string) 
                   </div>
                 </div>
               )}
+              {(snap.themes || []).length > 0 && (
+                <div className="box" style={{ margin: 6 }}>
+                  <h4>THEMES — 反応ラグのフェーズ（自動）</h4>
+                  <table className="t"><tbody>{snap.themes.map((t: any) => (
+                    <tr key={t.id}><td className="l amber">{t.name}</td><td className={`l ${String(t.phase).startsWith('②') ? 'up' : String(t.phase).startsWith('③') ? 'yellow' : 'muted'}`}>{t.phase}</td>
+                      <td title="spread z / driver z">{fmtNum(t.spread_z, 1)} / {fmtNum(t.driver_z, 1)}</td><td>{t.basket_flow ? <span className="down">B-1</span> : ''}</td></tr>
+                  ))}</tbody></table>
+                </div>
+              )}
+              {snap.sectors && Object.keys(snap.sectors).length > 0 && (
+                <div className="box" style={{ margin: 6 }}>
+                  <h4>SECTORS — RRG（セクター・フローの代理）</h4>
+                  <div className="pad" style={{ fontSize: 11 }}>{Object.entries(snap.sectors).map(([k, rows]: any) => (
+                    <div key={k}><span className="muted">{k}: </span>{rows.map((r: any) => <span key={r.symbol} style={{ color: RQC[r.quadrant], marginRight: 8 }} title={`${r.quadrant} ratio ${fmtNum(r.ratio, 1)} mom ${fmtNum(r.momentum, 1)}`}>{r.label}</span>)}</div>
+                  ))}</div>
+                </div>
+              )}
               <div className="box" style={{ margin: 6 }}>
                 <h4>CHANGES（自動実行ごとの変化）</h4>
                 <table className="t"><tbody>{(ch.data?.changes || []).map((c: any, i: number) => (
@@ -160,7 +183,7 @@ function AutoTab({ symbol, onPick, go }: { symbol: string; onPick?: (s: string) 
               {Object.keys(snap.errors || {}).length > 0 && <div className="note">data: {Object.entries(snap.errors).slice(0, 6).map(([k, v]) => `${k}: ${String(v).slice(0, 60)}`).join(' | ')}</div>}
             </div>
           </div>
-          <div className="note">ルールベース・自動更新（AIなし）。F＝評点表があればそれ、なければスキャナーのファンダメンタルズを同ユニバース内で順位付け（上下10%だけが3.4超／2.7未満）。M＝成長×流動性の象限でのセクター優位。需給＝天井/底シグナル。F が無ければポジションなし。確信度＝1＋一致数−逆行数。サイズ＝上限（L3% / S2%）×確信/3×min(1, 30%/ボラ)。詳細は docs/FRAMEWORK.md §8。</div>
+          <div className="note">ルールベース・自動更新（AIなし）。F＝評点表があればそれ、なければスキャナーのファンダメンタルズを同ユニバース内で順位付け（上下10%だけが3.4超／2.7未満）。M＝成長×流動性の象限でのセクター優位。需給＝天井/底シグナル。F が無ければポジションなし。確信度＝1＋一致数−逆行数。サイズ＝上限（L3% / S2%）×確信/3×min(1, 30%/ボラ)。SECT＝銘柄のセクター ETF の RRG（劣後のロング／主導のショートは①関門 FAIL）、固有＝XRAY の個別固有の分散比率（%）、決算＝次回決算までの日数。詳細は docs/FRAMEWORK.md §8。</div>
         </>
       )}
     </div>
@@ -376,9 +399,10 @@ function ScoreTab({ symbol, onPick }: { symbol: string; onPick?: (s: string) => 
 
 // ---------------------------------------------------------------- KELLY
 function KellyTab() {
-  const [pw, setPw] = useState(0.6);
-  const [xw, setXw] = useState(30);
-  const [xl, setXl] = useState(15);
+  const [pre] = useState(() => takeKellyPrefill()); // from TRAK → KELLY (own track record)
+  const [pw, setPw] = useState(pre ? Math.round(pre.pw * 1000) / 1000 : 0.6);
+  const [xw, setXw] = useState(pre ? Math.round(pre.xw * 100) / 100 : 30);
+  const [xl, setXl] = useState(pre ? Math.round(pre.xl * 100) / 100 : 15);
   const [side, setSide] = useState('long');
   const [ruin, setRuin] = useState(0);
   const [frac, setFrac] = useState(0.5);
@@ -394,6 +418,7 @@ function KellyTab() {
       <div style={{ flex: 1, minWidth: 300 }}>
         <div className="box" style={{ margin: 6 }}>
           <h4>期待値とケリー（04.2）— F = E / (XW × XL)</h4>
+          {pre && <div className="note">TRAK（自分の実績）から入力: {pre.label} — 勝率は事後平均（ベイズ更新）</div>}
           <div className="toolbar">
             <span className="lbl">勝率 PW</span><input className="inp num" type="number" step={0.01} min={0} max={1} value={pw} onChange={(e) => setPw(+e.target.value)} />
             <span className="lbl">XW %</span><input className="inp num" type="number" value={xw} onChange={(e) => setXw(+e.target.value)} />

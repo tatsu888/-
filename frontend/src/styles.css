@@ -220,3 +220,14 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .trin-curve { width: 100%; height: 130px; background: #000; border: 1px solid #1a1a1a; margin: 4px 0; }
 .glq { width: 100%; max-width: 320px; background: #000; border: 1px solid #222; }
 .trin-split td.l { white-space: normal; }
+
+/* ---- Insight (XRAY / RRG / THEME / PFND / TRAK) ---- */
+.stack { display: flex; width: 100%; background: #111; border: 1px solid #222; margin: 3px 0; }
+.stack > span { display: block; height: 100%; color: #000; font-size: 10px; text-align: center; line-height: 1.6; overflow: hidden; }
+.hbar { height: 8px; background: #111; }
+.hbar > span { display: block; height: 100%; }
+.xlegend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; margin-top: 4px; }
+.xlegend i { display: inline-block; width: 10px; height: 10px; margin-right: 3px; vertical-align: middle; }
+.theme-form label { display: grid; grid-template-columns: 150px 1fr; gap: 6px; margin: 3px 0; align-items: start; }
+.theme-form textarea { height: 36px; resize: vertical; }
+.t.nowrap td, .t.nowrap th { white-space: nowrap; }

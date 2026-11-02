@@ -21,6 +21,7 @@ import { XLS } from './functions/XLS';
 import { SCRN, TEAR } from './functions/Reports';
 import { CYCL, MACRO, MRGN, PROP, TRND, TXT } from './functions/Research';
 import { GLQ, TRIN } from './functions/Trinity';
+import { PFND, RRG, THEME, TRAK, XRAY } from './functions/Insight';
 
 const DEFAULT_PANELS: PanelState[] = [
   { id: 'p1', fn: 'GP' },
@@ -232,10 +233,15 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'MACRO': return <MACRO />;
     case 'MRGN': return <MRGN symbol={symbol} onPick={(s) => setSecurity(s)} />;
     case 'SCRN': return <SCRN />;
-    case 'TRIN': return <TRIN symbol={symbol} tab={args?.toUpperCase()} onPick={(s) => setSecurity(s)} />;
+    case 'TRIN': return <TRIN symbol={symbol} tab={args?.toUpperCase() || 'AUTO'} onPick={(s) => setSecurity(s)} />;
     case 'SCORE': case 'KELLY': case 'RULE': case 'PAIR': case 'SHRT': case 'CHIP': case 'GATE':
       return <TRIN symbol={symbol} tab={fn} onPick={(s) => setSecurity(s)} />;
     case 'GLQ': return <GLQ />;
+    case 'XRAY': return <XRAY symbol={symbol} />;
+    case 'RRG': return <RRG args={args} />;
+    case 'THEME': return <THEME />;
+    case 'PFND': return <PFND />;
+    case 'TRAK': return <TRAK />;
     case 'TXT': return <TXT symbol={symbol} />;
     case 'TRND': return <TRND symbol={symbol} />;
     case 'W': return <Watchlist />;

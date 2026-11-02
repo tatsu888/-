@@ -111,3 +111,24 @@
 ### 未確認
 - 実データでのスキャナー列（`return_on_equity`、`gross_margin`、`debt_to_equity` など）と、セクター名の対応（`SECTOR_BUCKET`）
 - （R27）上部バーに手動更新ボタン「⟳ 三位一体を更新」を追加。押すと `POST /api/trinity/run` → トースト → 開いている AUTO タブを再読込（`trinity-updated` イベント）。ブラウザで動作確認
+
+## 2026-11-02 — Claude Code（R28：分析の拡張）
+
+### やったこと
+- `xray.py`：階層的なリターン分解（マーケット → スタイル・マクロ → セクター → 個別）、β・t・1σ インパクト、ブックの因子露出とオイラー分散寄与、意図しないベットの警告。TOPIX-17・米国セクター ETF とスキャナーのセクター名の対応
+- `rrg.py`：週次 RRG（JdK の公開近似）、回転方向、売買代金比・上昇週比率による資金フローの代理
+- `themes.py`：テーマ・バスケット、β中立スプレッド、反応ラグのフェーズ規則、バスケット買い（平均ペア相関のパーセンタイル）、分散、混雑、Notion の5テーマのテンプレート（業種 ETF で代用）
+- `pairscreen.py`：サブセクター内の全ペア評価（Pair Sigma、相関、相関<0.5 の比率、β調整 Net÷Gross、固有、20日入場ルール、評点差→サイズ）
+- `trackrecord.py`：往復取引、ベイズ勝率（Beta 事後分布と 90% 区間）、XW/XL、E、ケリー（推奨 = min(½F, 3%)）、歪度による損益の形（10 取引以上）、週次・月次・年次勝率と目標
+- `api_insight.py`（`/api/insight/*`）、`api_trinity.py` の AUTO 実行に業種 ETF の RRG・XRAY・決算日数・テーマを追加（差分にテーマのフェーズ変化）
+- フロントエンド：`functions/Insight.tsx`（XRAY / RRG / THEME / PFND / TRAK）、AUTO の SECT・固有・決算の列と THEMES／SECTORS、TRAK → KELLY の入力、`TRIN` を打つと常に AUTO タブに戻るよう修正（KELLY 表示中に TRIN を打っても KELLY のままだった）
+- テスト：`test_insight.py` 8 件、`test_trinity_auto.py` に 1 件追加（合計 backend 132 件）。SIM で全画面を操作して確認
+
+### 途中で見つけて直した問題
+- XRAY の凡例のクラス名 `.legend` がチャートの凡例（絶対配置）と衝突し、ツールバーに重なっていた → `.xlegend`
+- TRAK で 4 取引しかないのに「保険売り型」と判定していた → 10 取引未満は「標本不足」
+- ケリーの理論値（例：1539%）だけが表示され誤解を招く → 推奨（½F、上限 3%／ショート 2%）の列を追加
+
+### 未確認
+- 業種 ETF・スタイル ETF の記号（実データ）、スキャナーの `earnings_release_next_date` の単位（秒と仮定、ミリ秒も自動判定）
+

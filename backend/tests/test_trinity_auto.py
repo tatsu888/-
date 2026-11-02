@@ -81,6 +81,24 @@ def test_evaluate_and_diff():
     assert any(c["what"] == "quadrant" for c in ch) and any(c["symbol"] == "A" and c["what"] == "verdict" for c in ch)
 
 
+def test_context_flags_and_theme_diff():
+    inputs = {"A": {"bars": _bars(300, 0.0), "scan": {"sector": "Technology Services"},
+                    "sector_rrg": {"etf": "TSE:1626", "label": "情報通信", "quadrant": "Lagging"},
+                    "xray": {"market": 0.6, "style": 0.2, "sector": 0.1, "idio": 0.1, "verdict": "x"}},
+              "B": {"bars": _bars(300, 0.0, seed=3), "scan": {"sector": "Utilities"}, "days_to_earnings": 12}}
+    gl = {"current": {"q": 4, "name": "4"}}
+    snap = T.evaluate(inputs, gl, {"A": {"total": 3.8, "direction": "LONG"}, "B": {"total": 2.2, "direction": "SHORT"}})
+    a = next(r for r in snap["rows"] if r["symbol"] == "A")
+    assert any("セクター・フローが逆行" in f for f in a["flags"]) and any("個別要因 10%" in f for f in a["flags"])
+    assert a["gates"]["①マクロ"] == "FAIL"
+    b = next(r for r in snap["rows"] if r["symbol"] == "B")
+    assert any("決算まで 12 日" in f for f in b["flags"])
+    prev = {"rows": snap["rows"], "themes": [{"id": "t1", "name": "X", "phase": "① 初動前／様子見"}]}
+    cur = {"rows": snap["rows"], "themes": [{"id": "t1", "name": "X", "phase": "②→③ エントリーゾーン（未波及）"}]}
+    ch = T.diff(prev, cur)
+    assert ch == [{"symbol": "THEME X", "what": "theme", "from": "① 初動前／様子見", "to": "②→③ エントリーゾーン（未波及）"}]
+
+
 def test_trinity_api_sim():
     from app.main import app
 
@@ -94,3 +112,9 @@ def test_trinity_api_sim():
         assert lat["snapshot"]["generated_at"] == snap["generated_at"]
         h = c.get("/api/trinity/history/NASDAQ:AAPL").json()
         assert len(h["history"]) == 1
+        assert "sectors" in snap and "themes" in snap
+        row = next(r for r in snap["rows"] if r["symbol"] == "NASDAQ:AAPL")
+        assert "sector_rrg" in row and row["xray"] and abs(sum(v for k, v in row["xray"].items() if k != "verdict") - 1) < 1e-6
+        t = c.post("/api/insight/themes/from_template", json={"name": "ESG Backlash"}).json()
+        snap2 = c.post("/api/trinity/run").json()
+        assert any(x["id"] == t["id"] and x["phase"] for x in snap2["themes"])

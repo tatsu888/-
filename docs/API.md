@@ -97,6 +97,20 @@
 | GET | /transcripts/{symbol}/brief_pack?id | 出典番号つき SOURCE と規則を含む AI 用プロンプト |
 | POST | /transcripts/{symbol}/validate_brief `{brief, id?}` | AI の回答の出典・数字を検証 |
 
+## 分析の拡張（/api/insight）
+
+| Method | Path | 説明 |
+|---|---|---|
+| GET | /xray?symbol&lookback&sector_etf&source | リターン分解（shares, coefficients, verdict） |
+| POST | /xray/book `{positions?, lookback, source}` | ブックの因子露出・分散寄与・警告（positions 省略時は RULE のブック） |
+| GET | /rrg?universe=JP17\|US11\|COVER\|CUSTOM&symbols&bench&tail&source | 相対回転グラフ |
+| GET/POST | /themes | テーマ一覧・保存（id があれば更新） |
+| POST | /themes/from_template `{name}` | Notion のテーマをテンプレートから作成 |
+| DELETE | /themes/{id} | 削除 |
+| GET | /themes/{id}/analyze?source | フェーズ、スプレッド、ドライバー、バスケット買い、構成銘柄 |
+| POST | /pairs/screen `{groups?, by, max_per_group, source}` | ペア候補（groups 省略時は AUTO のユニバースを業種別に） |
+| GET | /track?a0&b0 | 往復取引・ベイズ勝率・ケリー・期間別勝率 |
+
 ## AUTO 三位一体（/api/trinity）
 
 | Method | Path | 説明 |
@@ -136,7 +150,7 @@ WebSocket：判定が変わると `{"type":"trinity","changes":[...],"at":...}` 
 |---|---|---|
 | GET/POST | /api/alerts | 条件は above, below, cross_up, cross_down, change_pct_above, change_pct_below |
 | PATCH/DELETE | /api/alerts/{id} | 有効・無効の切替、値やメモの変更、削除 |
-| GET/PUT | /api/store/{key} `{"value":...}` | キーは watchlists, portfolio, notes, layout, settings, excel_links, harness_models, workspaces, harness_versions, macro_map, screens, trades, scorecards, fw_book, fw_ideas, fw_ideas_archive, transcripts |
+| GET/PUT | /api/store/{key} `{"value":...}` | キーは watchlists, portfolio, notes, layout, settings, excel_links, harness_models, workspaces, harness_versions, macro_map, screens, trades, scorecards, fw_book, fw_ideas, fw_ideas_archive, transcripts, themes, trinity_config |
 | GET | /api/diagnose | 接続の自己診断（`python -m app.diagnose` と同じ） |
 | GET | /api/screener/fields, POST /api/screener/custom | SCRN 用の項目一覧とカスタム条件のスキャン |
 
