@@ -34,7 +34,7 @@ def run_checks(spec: dict[str, Any], proj: dict[str, Any], val: dict[str, Any] |
                   f"{nh} historical periods (≥5 recommended for regression-based methods)"))
 
     # 2. assumption provenance (anti-hallucination): every non-statistical line must cite a source
-    statistical = {"cagr_trend", "trend", "holt", "ar1", "hist_avg_pct_of", "fixed_variable", "driver_regression"}
+    statistical = {"cagr_trend", "trend", "holt", "ar1", "hist_avg_pct_of", "fixed_variable", "driver_regression", "fourier"}
     def derived_only(p: dict[str, Any]) -> bool:  # built purely from other projected lines
         return p["method"] == "sum" or (p["method"] == "price_volume" and len(p["depends_on"]) == 2)
 

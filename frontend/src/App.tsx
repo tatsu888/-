@@ -19,6 +19,7 @@ import { HMAP, MOST } from './functions/Screener';
 import { DES, NEWS, NOTE, TA } from './functions/Security';
 import { XLS } from './functions/XLS';
 import { SCRN, TEAR } from './functions/Reports';
+import { CYCL } from './functions/Research';
 
 const DEFAULT_PANELS: PanelState[] = [
   { id: 'p1', fn: 'GP' },
@@ -220,6 +221,7 @@ function FunctionBody({ fn, symbol, args, switchProvider }: { fn: string; symbol
     case 'OV': return <OV symbol={symbol} />;
     case 'EARN': return <EARN />;
     case 'TEAR': return <TEAR symbol={symbol} />;
+    case 'CYCL': return <CYCL symbol={symbol} />;
     case 'SCRN': return <SCRN />;
     case 'W': return <Watchlist />;
     case 'WEI': case 'FX': case 'RATES': case 'CMDTY': case 'CRYP': return <ListMonitor list={fn} />;

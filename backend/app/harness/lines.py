@@ -112,6 +112,17 @@ def m_ar1(ctx, name, p):
     return res["forecast"], f"AR(1): x[t] = {res['const']:.4g} + {res['phi']:.4f}·x[t-1]", []
 
 
+def m_fourier(ctx, name, p):
+    from ..fourier import harmonic_forecast
+
+    hist = ctx.hist(name)
+    how = p.get("detrend", "loglinear" if min(hist) > 0 else "linear")
+    periods = p.get("periods")
+    res = harmonic_forecast(hist, ctx.h, int(p.get("k", 1)), how, periods)
+    ctx.extras[name] = {"fourier": {k: v for k, v in res.items() if k in ("periods", "components", "r2")}}
+    return res["forecast"], f"harmonic regression (trend + cycles {[round(x, 1) for x in res['periods']]}), R²={res['r2']:.3f}", []
+
+
 def m_pct_of(ctx, name, p):
     of = p["of"]
     pct = ctx.vec(p["pct"], "pct")
@@ -229,7 +240,7 @@ METHODS: dict[str, Method] = {
     "ar1": m_ar1, "pct_of": m_pct_of, "hist_avg_pct_of": m_hist_avg_pct_of, "fixed_variable": m_fixed_variable,
     "price_volume": m_price_volume, "sum": m_sum, "market_share": m_market_share,
     "customers_arpu": m_customers_arpu, "backlog": m_backlog, "capacity": m_capacity, "stores": m_stores,
-    "driver_regression": m_driver_regression, "pct_of_prior": m_yoy_pct_of_prior,
+    "driver_regression": m_driver_regression, "pct_of_prior": m_yoy_pct_of_prior, "fourier": m_fourier,
 }
 
 
@@ -248,6 +259,8 @@ METHOD_PARAMS: dict[str, dict[str, Any]] = {
     "holt": {"required": {}, "optional": {"alpha": "number", "beta": "number"}, "judgmental": False,
              "desc": "Holt linear exponential smoothing"},
     "ar1": {"required": {}, "optional": {}, "judgmental": False, "desc": "AR(1) with mean reversion"},
+    "fourier": {"required": {}, "optional": {"k": "int", "periods": "list", "detrend": "enum:loglinear|linear"},
+                "judgmental": False, "desc": "trend + seasonal cycles (harmonic regression; e.g. periods [4] for quarterly)"},
     "pct_of": {"required": {"of": "line", "pct": "vec"}, "optional": {}, "judgmental": True,
                "desc": "x = other line × pct"},
     "hist_avg_pct_of": {"required": {"of": "line"}, "optional": {"years": "int"}, "judgmental": False,

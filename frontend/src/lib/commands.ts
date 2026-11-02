@@ -23,6 +23,7 @@ export const FUNCTIONS: FnDef[] = [
   { code: 'SEAS', name: 'Seasonality', desc: '季節性 (年×月リターン, 月別平均/勝率)', needsSecurity: true, group: 'Analytics' },
   { code: 'EVT', name: 'Event Study', desc: 'イベントスタディ (決算等の前後の異常リターン CAR)', needsSecurity: true, group: 'Analytics' },
   { code: 'RV', name: 'Relative Value', desc: '同業他社比較 (バリュエーション/収益性/パフォーマンスのパーセンタイル)', needsSecurity: true, group: 'Analytics' },
+  { code: 'CYCL', name: 'Cycles / Fourier', desc: 'フーリエ変換: 支配的な周期・調和回帰予測・ナイーブ予測とのバックテスト', needsSecurity: true, group: 'Analytics' },
   { code: 'OV', name: 'Option Valuation', desc: 'オプション計算 (Black-Scholes, Greeks, IV)', needsSecurity: true, group: 'Analytics' },
   { code: 'EARN', name: 'Earnings Calendar', desc: '決算カレンダー (次回決算日, EPS予想)', group: 'Macro' },
   { code: 'W', name: 'Watchlist', desc: 'ウォッチリスト (複数・編集可)', group: 'Monitor' },

@@ -61,6 +61,14 @@ def ar1(values: list[float], horizon: int) -> dict[str, Any]:
     return {"phi": phi, "const": c, "long_run_mean": c / (1 - phi) if phi != 1 else None, "forecast": out}
 
 
+def _fourier(values: list[float], horizon: int) -> list[float]:
+    from ..fourier import harmonic_forecast
+
+    how = "loglinear" if min(values) > 0 else "linear"
+    k = 1 if len(values) < 24 else 2
+    return harmonic_forecast(values, horizon, k, how)["forecast"]
+
+
 def naive(values: list[float], horizon: int) -> list[float]:
     return [values[-1]] * horizon
 
@@ -85,6 +93,7 @@ METHODS: dict[str, Callable[[list[float], int], list[float]]] = {
     "ar1": lambda v, h: ar1(v, h)["forecast"],
     "trend_loglinear": lambda v, h: trend(v, h)["forecast"],
     "trend_linear": lambda v, h: trend(v, h, "linear")["forecast"],
+    "fourier": lambda v, h: _fourier(v, h),
 }
 
 

@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from . import analytics, factors, leadlag, quant
+from . import analytics, factors, fourier, leadlag, quant
 from .models import Bar
 from .providers import ProviderError
 from .state import S, interval_or_400, symbols_or_400
@@ -341,3 +341,34 @@ async def earnings(symbols: str):
     rows = [{"symbol": s, **d} for s, d in data.items()]
     rows.sort(key=lambda r: r.get("earnings_release_next_date") or 9e18)
     return {"rows": rows, "errors": []}
+
+
+
+# ---- Fourier / cycles (CYCL) ----------------------------------------------
+@router.get("/fourier")
+async def fourier_analysis(symbol: str, interval: str = "1D", bars: int = Query(750, ge=64, le=5000),
+                           k: int = Query(3, ge=1, le=10), horizon: int = Query(20, ge=1, le=250),
+                           detrend: str = "loglinear", source: str | None = SOURCE):
+    iv = interval_or_400(interval)
+    data = await S.history(symbol, iv, bars, source)
+    closes = [b["close"] for b in data]
+    if detrend not in ("loglinear", "linear"):
+        raise HTTPException(400, "detrend must be loglinear or linear")
+    try:
+        pg = fourier.periodogram(closes, detrend, top=10)
+        fc = fourier.harmonic_forecast(closes, horizon, k, detrend)
+        bt = fourier.backtest(closes, min(horizon, max(5, len(closes) // 10)), k, detrend,
+                              min_train=max(64, len(closes) // 2))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    step = data[-1]["time"] - data[-2]["time"] if len(data) > 1 else 86400
+    future_t = [data[-1]["time"] + step * (i + 1) for i in range(horizon)]
+    return {"symbol": symbol, "interval": iv, "periodogram": {**pg, "spectrum": pg["spectrum"][:400]},
+            "fit": {k2: v for k2, v in fc.items() if k2 not in ("fitted", "forecast", "lower", "upper")},
+            "series": {"price": [{"time": b["time"], "value": b["close"]} for b in data],
+                       "fitted": [{"time": b["time"], "value": v} for b, v in zip(data, fc["fitted"])],
+                       "forecast": [{"time": t, "value": v} for t, v in zip(future_t, fc["forecast"])],
+                       "lower": [{"time": t, "value": v} for t, v in zip(future_t, fc["lower"])],
+                       "upper": [{"time": t, "value": v} for t, v in zip(future_t, fc["upper"])]},
+            "backtest": bt,
+            "note": "In-sample fit (R²) says little; judge by the out-of-sample skill vs naive."}
