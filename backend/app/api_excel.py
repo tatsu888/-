@@ -117,3 +117,99 @@ async def write(req: WriteReq):
 async def upload(file: UploadFile = File(...)):
     data = await file.read()
     return _wrap(S.excel.save_upload, file.filename or "upload.xlsx", data)
+
+
+# ---- formatting / structure / fill / trace / history ------------------------
+class FormatReq(BaseModel):
+    id: str
+    sheet: str
+    range: str
+    format: dict[str, Any]   # bold, italic, font_color "RRGGBB"|null, fill "RRGGBB"|null, number_format, align
+
+
+async def _thread(fn, *a):
+    import asyncio
+
+    try:
+        return await asyncio.to_thread(fn, *a)
+    except ExcelError as e:
+        raise HTTPException(e.status, str(e)) from e
+
+
+@router.post("/format")
+async def format_cells(req: FormatReq):
+    res = await _thread(S.excel.format_cells, req.id, req.sheet, req.range, req.format)
+    res["view"] = _wrap(S.excel.view, req.id, _quote)
+    return res
+
+
+class StructReq(BaseModel):
+    id: str
+    sheet: str = ""
+    op: str                  # insert_rows | delete_rows | insert_cols | delete_cols | add_sheet
+    index: int = 1
+    count: int = 1
+    name: str = ""
+
+
+@router.post("/structure")
+async def structure(req: StructReq):
+    res = await _thread(S.excel.structure, req.id, req.sheet, req.op,
+                        {"index": req.index, "count": req.count, "name": req.name})
+    res["view"] = _wrap(S.excel.view, req.id, _quote)
+    return res
+
+
+class FillReq(BaseModel):
+    id: str
+    sheet: str
+    source: str              # e.g. "C5:C7"
+    target: str              # e.g. "D5:H7" — relative references shift like Excel
+
+
+@router.post("/fill")
+async def fill(req: FillReq):
+    res = await _thread(S.excel.fill, req.id, req.sheet, req.source, req.target)
+    res["view"] = _wrap(S.excel.view, req.id, _quote)
+    return res
+
+
+@router.get("/trace")
+async def trace(id: str, sheet: str, addr: str, depth: int = 1):
+    return _wrap(S.excel.trace, id, sheet, addr, max(1, min(depth, 5)))
+
+
+@router.get("/backups")
+async def backups(id: str):
+    return _wrap(S.excel.backups, id)
+
+
+@router.get("/diff")
+async def diff(id: str, backup: str):
+    return await _thread(S.excel.diff_backup, id, backup)
+
+
+class RestoreReq(BaseModel):
+    id: str
+    backup: str
+
+
+@router.post("/restore")
+async def restore(req: RestoreReq):
+    return await _thread(S.excel.restore, req.id, req.backup)
+
+
+@router.get("/live")
+async def live(id: str):
+    return await _thread(S.excel.live_values, id)
+
+
+class NewReq(BaseModel):
+    name: str
+    years: list[str] | None = None
+    sheets: list[str] | None = None
+
+
+@router.post("/new")
+async def new_workbook(req: NewReq):
+    return _wrap(S.excel.create_workbook, req.name, req.years, req.sheets)

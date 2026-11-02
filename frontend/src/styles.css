@@ -150,10 +150,15 @@ table.t tr.group td { color: var(--amber); background: #0c0c0c; text-align: left
 .xl { border-collapse: collapse; font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 12px; background: #fff; color: #000; }
 .xl td, .xl th { border: 1px solid #d4d4d4; padding: 0 3px; height: 20px; white-space: nowrap; overflow: hidden; text-overflow: clip; }
 .xl.nogrid td { border-color: transparent; }
-.xl th { background: #f0f0f0; color: #444; font-weight: 400; position: sticky; top: 0; z-index: 2; text-align: center; }
+.xl th { background: #f0f0f0; color: #444; font-weight: 400; position: sticky; top: 0; z-index: 5; text-align: center; }
 .xl th.rh { position: sticky; left: 0; z-index: 3; min-width: 34px; }
+.xl thead th.rh { z-index: 6; }
 .xl td.sel { outline: 2px solid #217346; outline-offset: -2px; }
 .xl td.changed { background-image: linear-gradient(rgba(255, 216, 74, 0.55), rgba(255, 216, 74, 0.55)); }
+.xl td.prec { outline: 2px dashed #1f6fd1; outline-offset: -2px; }
+.xl td.dep { outline: 2px dashed #1a8f3a; outline-offset: -2px; }
+.xl td.found { background-image: linear-gradient(rgba(255, 160, 40, 0.6), rgba(255, 160, 40, 0.6)); }
+.xl td.xlive { background-image: linear-gradient(rgba(169, 139, 255, 0.35), rgba(169, 139, 255, 0.35)); }
 .xl td.rng { background-image: linear-gradient(rgba(33, 115, 70, 0.2), rgba(33, 115, 70, 0.2)); }
 .xl td.calc { text-decoration: underline dotted #888; }
 .xl td.over { background-image: linear-gradient(rgba(94, 169, 255, 0.45), rgba(94, 169, 255, 0.45)); }

@@ -9,14 +9,17 @@
 // See docs/EXCEL.md.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
+import { fmtNum } from '../lib/format';
 import { useFeedMessages } from '../lib/feed';
 import { colLetter, parseAddr, renderValue } from '../lib/xlsfmt';
 import { ErrorBox, Loading, useAsync } from '../components/ui';
 import { useTerminal } from '../ctx';
+import { FormatBar, HistoryPanel, QuickChart, selectionStats } from './XlsTools';
 
 interface Cell { v: any; f?: string; nf?: string; s?: number; calc?: boolean }
 interface Sheet { name: string; state: string; max_row: number; max_col: number; truncated: boolean; merged: string[]; cols: Record<string, { w?: number; hidden?: boolean }>; rows: Record<string, { h?: number; hidden?: boolean }>; cells: Record<string, Cell>; gridlines: boolean; tab_color?: string }
 interface View { id: string; name: string; mtime: number; sheets: Sheet[]; styles: any[]; write_mode: string; write_reason: string; lossy_parts: string[]; engine_filled?: number }
+interface Sheet2 { freeze?: string | null }
 interface UndoItem { sheet: string; before: Record<string, any>; label: string }
 
 const BORDER: Record<string, string> = { thin: '1px solid #000', medium: '2px solid #000', thick: '3px solid #000', dashed: '1px dashed #000', dotted: '1px dotted #000', double: '3px double #000', hair: '1px solid #999' };
@@ -44,6 +47,15 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
   const [live, setLive] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const fbarRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const findRef = useRef<HTMLInputElement>(null);
+  const [nameBox, setNameBox] = useState<string | null>(null);
+  const [trace, setTrace] = useState<{ prec: Set<string>; dep: Set<string>; label: string; offSheet: { sheet: string; addr: string; kind: string }[] } | null>(null);
+  const [find, setFind] = useState<{ q: string; hits: { sheet: number; addr: string }[]; i: number } | null>(null);
+  const [clip, setClip] = useState<{ sheet: string; range: string; tsv: string } | null>(null);
+  const [panel, setPanel] = useState<'none' | 'history' | 'chart-line' | 'chart-bar'>('none');
+  const [sync, setSync] = useState(false);
+  const [excelLive, setExcelLive] = useState<{ values: Record<string, Record<string, any>>; dirty: boolean | null } | null>(null);
 
   const canWrite = !!view && view.write_mode !== 'off';
   const editMode = mode === 'edit' && canWrite;
@@ -117,6 +129,22 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     }
   }
 
+  /** POST an excel op that returns {view, before?}; pushes undo when 'before' is present. */
+  async function op(path: string, body: Record<string, any>, label: string, sheetName?: string) {
+    if (!view) return;
+    setSaving(true);
+    try {
+      const r = await api.post<any>(path, { id: view.id, ...body });
+      if (r.before && Object.keys(r.before).length && sheetName) setUndo((u) => [...u.slice(-49), { sheet: sheetName, before: r.before, label }]);
+      if (r.view) setView(r.view);
+      toast(`${label} ✓${r.mode ? ` (${r.mode})` : ''}`);
+    } catch (e: any) {
+      toast(`${label}: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function doUndo() {
     const last = undo[undo.length - 1];
     if (!last) return;
@@ -184,6 +212,19 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
       if (editMode) doUndo();
       return;
     }
+    if (e.ctrlKey || e.metaKey) {
+      const key = k.toLowerCase();
+      const actions: Record<string, () => void> = {
+        d: () => fillDir('down'), r: () => fillDir('right'), f: () => openFind(), g: () => nameRef.current?.focus(),
+        b: () => editMode && formatSel({ bold: !(sheet.cells[sel]?.s != null && view!.styles[sheet.cells[sel]!.s!]?.b) }, 'bold'),
+        '[': () => doTrace('prec'), ']': () => doTrace('dep'),
+      };
+      if (actions[key]) {
+        e.preventDefault();
+        actions[key]();
+        return;
+      }
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const moves: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Tab: [0, e.shiftKey ? -1 : 1] };
     if (moves[k]) {
@@ -198,6 +239,8 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
       else commit(sel, '', 'none');
     } else if (k === 'Escape') {
       setAnchor(null);
+      setTrace(null);
+      setFind(null);
     } else if (k.length === 1) {
       e.preventDefault();
       startEdit(sel, k); // typing overwrites, like Excel
@@ -250,6 +293,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
       }).join('\t'))
       .join('\n');
     e.clipboardData.setData('text/plain', tsv);
+    setClip({ sheet: sheet.name, range: selRange(), tsv });
     toast(`copied ${rangeAddrs().flat().length} cell(s)`);
   }
 
@@ -260,8 +304,126 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     if (!text) return;
     const block = text.split('\n').map((line) => line.split('\t'));
     if (block.flat().length > 2000) return toast('paste too large (max 2000 cells)');
+    // our own copy within the same sheet → paste FORMULAS with relative references shifted (like Excel)
+    if (editMode && clip && clip.tsv === text.replace(/\n$/, '') && clip.sheet === sheet.name) {
+      const [r0, c0] = anchor ? rangeBounds() : parseAddr(sel);
+      const target = `${colLetter(c0)}${r0}:${colLetter(c0 + block[0].length - 1)}${r0 + block.length - 1}`;
+      op('/excel/fill', { sheet: sheet.name, source: clip.range, target }, `paste formulas → ${target}`, sheet.name);
+      return;
+    }
     applyBlock(block, 'paste');
   }
+
+  function selRange(): string {
+    const [r1, c1, r2, c2] = rangeBounds();
+    const a = `${colLetter(c1)}${r1}`, b = `${colLetter(c2)}${r2}`;
+    return a === b ? a : `${a}:${b}`;
+  }
+
+  function fillDir(dir: 'down' | 'right') {
+    if (!sheet || !editMode) return toast('fill: EDIT mode only');
+    const [r1, c1, r2, c2] = rangeBounds();
+    if (dir === 'down' && r2 > r1) op('/excel/fill', { sheet: sheet.name, source: `${colLetter(c1)}${r1}:${colLetter(c2)}${r1}`, target: `${colLetter(c1)}${r1 + 1}:${colLetter(c2)}${r2}` }, 'fill down', sheet.name);
+    else if (dir === 'right' && c2 > c1) op('/excel/fill', { sheet: sheet.name, source: `${colLetter(c1)}${r1}:${colLetter(c1)}${r2}`, target: `${colLetter(c1 + 1)}${r1}:${colLetter(c2)}${r2}` }, 'fill right', sheet.name);
+    else toast(`select a range first (Shift+arrows), then Ctrl+${dir === 'down' ? 'D' : 'R'}`);
+  }
+
+  function formatSel(fmt: Record<string, any>, label: string) {
+    if (!sheet || !editMode) return;
+    op('/excel/format', { sheet: sheet.name, range: selRange(), format: fmt }, label);
+  }
+
+  function structure(o: string, label: string) {
+    if (!sheet) return;
+    const [r1, c1, r2, c2] = rangeBounds();
+    const rows = o.endsWith('rows');
+    if (o.startsWith('delete') && !confirm(`${label}: ${rows ? `rows ${r1}-${r2}` : `cols ${colLetter(c1)}-${colLetter(c2)}`}?`)) return;
+    op('/excel/structure', { sheet: sheet.name, op: o, index: rows ? r1 : c1, count: rows ? r2 - r1 + 1 : c2 - c1 + 1 }, label);
+  }
+
+  async function doTrace(kind: 'prec' | 'dep') {
+    if (!sheet || !view) return;
+    try {
+      const t = await api.get<any>('/excel/trace', { id: view.id, sheet: sheet.name, addr: sel, depth: 1 });
+      const list = kind === 'prec' ? t.precedents : t.dependents;
+      const key = (x: any) => `${x.sheet}!${x.addr}`;
+      setTrace({
+        prec: new Set(kind === 'prec' ? list.map(key) : []), dep: new Set(kind === 'dep' ? list.map(key) : []),
+        label: `${kind === 'prec' ? 'precedents' : 'dependents'} of ${sheet.name}!${sel}: ${list.length}`,
+        offSheet: list.filter((x: any) => x.sheet !== sheet.name).map((x: any) => ({ ...x, kind })),
+      });
+      if (!list.length) toast(`no ${kind === 'prec' ? 'precedents' : 'dependents'}`);
+    } catch (e: any) {
+      toast(e.message);
+    }
+  }
+
+  function jump(sheetName: string, addr: string) {
+    const i = view?.sheets.findIndex((x) => x.name === sheetName) ?? -1;
+    if (i < 0) return toast(`sheet not found: ${sheetName}`);
+    setSheetIdx(i);
+    const [r] = parseAddr(addr.toUpperCase());
+    if (r > limit) setLimit(r + 100);
+    setSel(addr.toUpperCase());
+    setAnchor(null);
+    setTimeout(() => gridRef.current?.focus(), 0);
+  }
+
+  function gotoName(text: string) {
+    const t = text.trim().replace(/\$/g, '');
+    const m = t.match(/^(?:'?([^'!]+)'?!)?([A-Za-z]{1,3}\d+)(?::([A-Za-z]{1,3}\d+))?$/);
+    if (!m) return toast('例: B12 / Model!C5 / A1:D10');
+    jump(m[1] ?? sheet!.name, m[3] ?? m[2]);
+    if (m[3]) setAnchor(m[2].toUpperCase());
+    setNameBox(null);
+  }
+
+  function openFind() {
+    setFind({ q: '', hits: [], i: 0 });
+    setTimeout(() => findRef.current?.focus(), 0);
+  }
+  function runFind(q: string) {
+    if (!view) return;
+    const ql = q.toLowerCase();
+    const hits: { sheet: number; addr: string }[] = [];
+    if (ql)
+      view.sheets.forEach((sh, si) => {
+        for (const [a, c] of Object.entries(sh.cells)) {
+          const txt = `${c.f ?? ''} ${renderValue(c.v, c.nf).text}`.toLowerCase();
+          if (txt.includes(ql)) hits.push({ sheet: si, addr: a });
+        }
+      });
+    hits.sort((x, y) => x.sheet - y.sheet || parseAddr(x.addr)[0] - parseAddr(y.addr)[0] || parseAddr(x.addr)[1] - parseAddr(y.addr)[1]);
+    setFind({ q, hits, i: 0 });
+    if (hits.length) jump(view.sheets[hits[0].sheet].name, hits[0].addr);
+  }
+  function findNext(step: number) {
+    if (!find?.hits.length || !view) return;
+    const i = (find.i + step + find.hits.length) % find.hits.length;
+    setFind({ ...find, i });
+    jump(view.sheets[find.hits[i].sheet].name, find.hits[i].addr);
+  }
+
+  // live values from the workbook open in Excel (xlwings), incl. unsaved edits
+  useEffect(() => {
+    if (!sync || !fileId) return setExcelLive(null);
+    let alive = true;
+    const pull = () =>
+      api.get<any>('/excel/live', { id: fileId }).then((r) => {
+        if (!alive) return;
+        if (!r.open) {
+          setExcelLive(null);
+          toast(`SYNC: ${r.reason}`);
+          setSync(false);
+        } else setExcelLive({ values: r.values, dirty: r.dirty });
+      }, (e) => (toast(e.message), setSync(false)));
+    pull();
+    const t = setInterval(pull, 2000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [sync, fileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keep the selected cell visible
   useEffect(() => {
@@ -288,6 +450,10 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
       if (key in changed) return { v: changed[key], cls: 'changed' };
     }
     if (key in liveVals) return { v: liveVals[key], cls: 'calc' };
+    if (excelLive) {
+      const lv = excelLive.values[sheet!.name]?.[addr];
+      if (lv !== undefined && lv !== c?.v) return { v: lv, cls: 'xlive' };
+    }
     return { v: c?.v, cls: c?.calc ? 'calc' : '' };
   };
   const colW = (c: number) => {
@@ -295,6 +461,26 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
     if (d?.hidden) return 0;
     return Math.round((d?.w ?? 8.43) * 7 + 5);
   };
+  // frozen panes (sheet.freeze = top-left cell of the scrollable area, e.g. "B3")
+  const frz = (() => {
+    const f = (sheet as (Sheet & Sheet2) | undefined)?.freeze;
+    if (!f || !sheet) return { r: 0, c: 0, top: {} as Record<number, number>, left: {} as Record<number, number> };
+    const [fr, fc] = parseAddr(f);
+    const top: Record<number, number> = {}, left: Record<number, number> = {};
+    let y = 21;
+    for (let r = 1; r < fr; r++) {
+      top[r] = y;
+      y += (sheet.rows[String(r)]?.h ?? 15) * 1.33 + 1;
+    }
+    let x = 39;
+    for (let c = 1; c < fc; c++) {
+      left[c] = x;
+      x += colW(c) + 7;
+    }
+    return { r: fr, c: fc, top, left };
+  })();
+  const stats = sheet ? selectionStats(rangeAddrs().flat().map((a) => shown(a, sheet.cells[a]).v)) : null;
+  const chartBlock = sheet && panel.startsWith('chart') ? rangeAddrs().map((row) => row.map((a) => shown(a, sheet.cells[a]).v)) : [];
   const fbarValue = editing === sel ? draft : !editMode && selKey in overrides ? String(overrides[selKey]) : String(cell?.f ?? cell?.v ?? '');
 
   return (
@@ -316,6 +502,19 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
             {isLinked ? 'UNLINK' : `LINK→${symbol.split(':').pop()}`}
           </button>
         )}
+        <button className="tb" onClick={async () => {
+          const n = prompt('new workbook name (e.g. 7203_Toyota_model)', symbol.split(':').pop() + '_model');
+          if (!n) return;
+          const years = prompt('header years (optional, comma separated)', 'FY2024,FY2025E,FY2026E,FY2027E');
+          try {
+            const r = await api.post<any>('/excel/new', { name: n, years: years ? years.split(',').map((x) => x.trim()).filter(Boolean) : null });
+            all.reload();
+            linked.reload();
+            setFileId(r.id);
+          } catch (e: any) {
+            toast(e.message);
+          }
+        }}>NEW BOOK</button>
         <label className="tb">UPLOAD<input type="file" accept=".xlsx,.xlsm" style={{ display: 'none' }} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} /></label>
       </div>
       {view && (
@@ -369,9 +568,75 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
           {stale.length > 0 && <span className="muted" title={stale.join(', ')}>{stale.length} cell(s) use functions not in the engine — Excel value kept</span>}
         </div>
       )}
+      {view && sheet && (
+        <div className="toolbar">
+          <button className="tb" onClick={openFind} title="Ctrl+F">FIND</button>
+          <button className="tb" onClick={() => doTrace('prec')} title="Ctrl+[ — cells this formula uses">◀ PRECEDENTS</button>
+          <button className="tb" onClick={() => doTrace('dep')} title="Ctrl+] — cells that use this cell">DEPENDENTS ▶</button>
+          {editMode && (
+            <>
+              <span className="lbl">│</span>
+              <button className="tb" onClick={() => fillDir('down')} title="Ctrl+D — copy the top row of the selection down (relative refs shift)">FILL ↓</button>
+              <button className="tb" onClick={() => fillDir('right')} title="Ctrl+R — copy the left column right">FILL →</button>
+              <span className="lbl">│</span>
+              {(['insert_rows', 'delete_rows', 'insert_cols', 'delete_cols'] as const).map((o) => (
+                <button key={o} className="tb" disabled={view.write_mode !== 'xlwings'} onClick={() => structure(o, o.replace('_', ' '))}
+                  title={view.write_mode === 'xlwings' ? `${o} at the selection` : '行・列の挿入/削除は Excel 本体 (xlwings) が必要 — openpyxl では数式参照がずれるため無効'}>
+                  {o.startsWith('insert') ? '+' : '−'}{o.endsWith('rows') ? 'ROW' : 'COL'}
+                </button>
+              ))}
+              <button className="tb" onClick={() => { const n = prompt('new sheet name'); if (n) op('/excel/structure', { op: 'add_sheet', name: n }, `add sheet ${n}`); }}>+SHEET</button>
+            </>
+          )}
+          <span className="lbl">│</span>
+          <button className={`tb ${panel === 'history' ? 'on' : ''}`} onClick={() => setPanel(panel === 'history' ? 'none' : 'history')}>HISTORY</button>
+          <button className={`tb ${panel.startsWith('chart') ? 'on' : ''}`} onClick={() => setPanel(panel === 'chart-line' ? 'chart-bar' : panel === 'chart-bar' ? 'none' : 'chart-line')} title="chart the selected range (click again: bar / close)">CHART</button>
+          <button className="tb" title="業績予想ハーネスの spec に貼れる Excel 参照をコピー" onClick={async () => {
+            const ref = JSON.stringify({ excel: view.id, range: `${/[^A-Za-z0-9_]/.test(sheet.name) ? `'${sheet.name}'` : sheet.name}!${selRange()}` });
+            try { await navigator.clipboard.writeText(ref); toast(`copied ${ref}`); } catch { prompt('harness reference', ref); }
+          }}>HARNESS REF</button>
+          {view.write_mode === 'xlwings' && (
+            <button className={`tb ${sync ? 'on' : ''}`} onClick={() => setSync(!sync)} title="Excel で開いているブックの値 (未保存の編集を含む) を 2 秒ごとに表示">SYNC EXCEL</button>
+          )}
+          {excelLive && <span className={excelLive.dirty ? 'badge warn' : 'badge live'}>{excelLive.dirty ? 'EXCEL: UNSAVED CHANGES' : 'EXCEL: IN SYNC'}</span>}
+        </div>
+      )}
+      {view && sheet && editMode && <FormatBar disabled={saving} apply={(f, l) => formatSel(f, l)} />}
+      {find && (
+        <div className="toolbar">
+          <span className="lbl">FIND</span>
+          <input ref={findRef} className="inp" style={{ width: 200 }} value={find.q} onChange={(e) => runFind(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') findNext(e.shiftKey ? -1 : 1); if (e.key === 'Escape') (setFind(null), gridRef.current?.focus()); }}
+            placeholder="value or formula text — Enter = next" />
+          <span className="muted">{find.hits.length ? `${find.i + 1} / ${find.hits.length}` : find.q ? 'no match' : ''}</span>
+          <button className="tb" onClick={() => findNext(-1)}>▲</button>
+          <button className="tb" onClick={() => findNext(1)}>▼</button>
+          <button className="tb" onClick={() => setFind(null)}>✕</button>
+        </div>
+      )}
+      {trace && (
+        <div className="toolbar">
+          <span className={trace.prec.size ? 'blue' : 'up'}>{trace.label}</span>
+          {trace.offSheet.map((x) => <button key={x.sheet + x.addr} className="tb" onClick={() => jump(x.sheet, x.addr)}>{x.sheet}!{x.addr}</button>)}
+          <button className="tb" onClick={() => setTrace(null)}>✕ (Esc)</button>
+        </div>
+      )}
       {view && (
         <div className="fbar">
-          <span className="addr">{anchor ? `${rangeAddrs()[0][0]}:${sel}`.replace(/^(.*):\1$/, '$1') : sel}</span>
+          <input
+            ref={nameRef}
+            className="inp addr"
+            style={{ width: 90 }}
+            title="Name box: type an address (B12, Model!C5, A1:D10) and Enter — Ctrl+G"
+            value={nameBox ?? selRange()}
+            onFocus={(e) => (setNameBox(selRange()), e.target.select())}
+            onChange={(e) => setNameBox(e.target.value)}
+            onBlur={() => setNameBox(null)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') gotoName((e.target as HTMLInputElement).value);
+              if (e.key === 'Escape') (setNameBox(null), gridRef.current?.focus());
+            }}
+          />
           <span className="muted">fx</span>
           <input
             ref={fbarRef}
@@ -419,7 +684,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
                 if (rd?.hidden) return null;
                 return (
                   <tr key={r} style={{ height: rd?.h ? rd.h * 1.33 : undefined }}>
-                    <th className="rh">{r}</th>
+                    <th className="rh" style={r < frz.r ? { position: 'sticky', top: frz.top[r], zIndex: 4 } : undefined}>{r}</th>
                     {Array.from({ length: sheet.max_col }, (_, i) => i + 1).map((c) => {
                       const addr = `${colLetter(c)}${r}`;
                       if (merges.covered.has(addr)) return null;
@@ -430,7 +695,11 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
                       const span = merges.anchor[addr];
                       const { v, cls } = shown(addr, cl);
                       const rendered = renderValue(v, cl?.nf);
+                      const frozen: React.CSSProperties = {};
+                      if (r < frz.r) Object.assign(frozen, { position: 'sticky', top: frz.top[r], zIndex: 2 });
+                      if (c < frz.c) Object.assign(frozen, { position: 'sticky', left: frz.left[c], zIndex: r < frz.r ? 3 : 2 });
                       const style: React.CSSProperties = {
+                        ...frozen, ...(frozen.position && !st.bg ? { background: '#fff' } : {}),
                         minWidth: w, maxWidth: span ? undefined : w, fontWeight: st.b ? 700 : undefined, fontStyle: st.i ? 'italic' : undefined,
                         textDecoration: st.u ? 'underline' : undefined, color: rendered.color ?? (st.fc ? `#${st.fc}` : undefined),
                         background: st.bg ? `#${st.bg}` : undefined, textAlign: st.ha ?? (typeof v === 'number' ? 'right' : undefined),
@@ -443,7 +712,7 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
                           rowSpan={span?.[0]}
                           colSpan={span?.[1]}
                           style={style}
-                          className={`${sel === addr ? 'sel' : ''} ${inRange(addr) ? 'rng' : ''} ${cls}`}
+                          className={`${sel === addr ? 'sel' : ''} ${inRange(addr) ? 'rng' : ''} ${cls} ${trace?.prec.has(`${sheet.name}!${addr}`) ? 'prec' : ''} ${trace?.dep.has(`${sheet.name}!${addr}`) ? 'dep' : ''} ${find?.hits[find.i] && view!.sheets[find.hits[find.i].sheet].name === sheet.name && find.hits[find.i].addr === addr ? 'found' : ''}`}
                           onClick={(e) => {
                             if (editing && editing !== addr) commit(editing, draft, 'none');
                             if (e.shiftKey) setAnchor((a) => a ?? sel);
@@ -478,6 +747,15 @@ export function XLS({ symbol, args }: { symbol: string; args?: string }) {
           </table>
           {sheet.max_row > limit && <button className="tb" style={{ margin: 6 }} onClick={() => setLimit(limit + 500)}>SHOW MORE ROWS ({sheet.max_row - limit} more)</button>}
           {sheet.truncated && <div className="note">sheet truncated for display (max 3000 rows × 120 cols) — open in Excel for the full sheet</div>}
+        </div>
+      )}
+      {view && panel === 'history' && <HistoryPanel fileId={view.id} canWrite={canWrite} onRestored={() => (load(), toast('restored'))} onJump={jump} />}
+      {sheet && panel.startsWith('chart') && <QuickChart block={chartBlock} kind={panel === 'chart-bar' ? 'bar' : 'line'} onClose={() => setPanel('none')} />}
+      {stats && anchor && (
+        <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
+          <span className="muted">COUNT</span> {stats.count} <span className="muted">NUMS</span> {stats.nums}
+          <span className="muted">SUM</span> <span className="yellow">{fmtNum(stats.sum, 2)}</span>
+          <span className="muted">AVG</span> {fmtNum(stats.avg, 2)} <span className="muted">MIN</span> {fmtNum(stats.min, 2)} <span className="muted">MAX</span> {fmtNum(stats.max, 2)}
         </div>
       )}
       {view && (

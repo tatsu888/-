@@ -423,6 +423,9 @@ class ExcelLibrary:
         mode, reason = self.effective_write(path)
         if mode is None:
             raise ExcelError(reason, 409 if "失われる" in reason else 403)
+        from . import excel_ops as X
+
+        bk = X.backup(path)  # every mode: lossless file copy first
         if mode == "xlwings":
             try:
                 res = _excel_thread().run(_xlwings_write, path, sheet, updates)
@@ -432,19 +435,163 @@ class ExcelLibrary:
                 raise ExcelError(f"Excel (xlwings) error: {type(e).__name__}: {e}", 500) from e
         else:
             res = self._openpyxl_write(path, sheet, updates)
+        self._mark_written(file_id, path)
+        return {"ok": True, "mode": mode, "backup": bk, **res}
+
+    def _mark_written(self, file_id: str, path: Path) -> None:
         self._own_writes[file_id] = path.stat().st_mtime
+        self.watched[file_id] = path.stat().st_mtime
         self._cache.pop(file_id, None)
+
+    # ---- formatting / structure / fill / trace / history (see excel_ops.py) ----
+    def _require_write(self, path: Path) -> str:
+        mode, reason = self.effective_write(path)
+        if mode is None:
+            raise ExcelError(reason, 409 if "失われる" in reason else 403)
+        return mode
+
+    def format_cells(self, file_id: str, sheet: str, rng: str, fmt: dict[str, Any]) -> dict[str, Any]:
+        from . import excel_ops as X
+
+        path = self.path_for(file_id)
+        mode = self._require_write(path)
+        X.backup(path)
+        if mode == "xlwings":
+            res = self._xl(path, sheet, "format", {"range": rng, "format": fmt})
+        else:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(path, keep_vba=path.suffix.lower() == ".xlsm", keep_links=True)
+            if sheet not in wb.sheetnames:
+                raise ExcelError(f"sheet not found: {sheet}", 404)
+            X.openpyxl_format(wb[sheet], rng, fmt)
+            self._save_openpyxl(wb, path)
+            res = {}
+        self._mark_written(file_id, path)
         return {"ok": True, "mode": mode, **res}
+
+    def structure(self, file_id: str, sheet: str, op: str, args: dict[str, Any]) -> dict[str, Any]:
+        """insert_rows / delete_rows / insert_cols / delete_cols (Excel only) and add_sheet."""
+        from . import excel_ops as X
+
+        path = self.path_for(file_id)
+        mode = self._require_write(path)
+        if op != "add_sheet" and mode != "xlwings":
+            raise ExcelError("行・列の挿入/削除は Excel 本体 (xlwings) が必要です — openpyxl は数式の参照を更新しないため"
+                             "ファイルが壊れます。Windows で xlwings を入れるか OPEN IN EXCEL を使ってください", 409)
+        X.backup(path)
+        if mode == "xlwings":
+            res = self._xl(path, sheet, op, args)
+        else:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(path, keep_vba=path.suffix.lower() == ".xlsm", keep_links=True)
+            name = str(args.get("name") or f"Sheet{len(wb.sheetnames) + 1}")
+            if name in wb.sheetnames:
+                raise ExcelError(f"sheet already exists: {name}", 409)
+            wb.create_sheet(name)
+            self._save_openpyxl(wb, path)
+            res = {}
+        self._mark_written(file_id, path)
+        return {"ok": True, "mode": mode, **res}
+
+    def _xl(self, path: Path, sheet: str, op: str, args: dict[str, Any]) -> dict[str, Any]:
+        from . import excel_ops as X
+
+        try:
+            return _excel_thread().run(X.xlwings_apply, path, sheet, op, args)
+        except Exception as e:  # noqa: BLE001
+            raise ExcelError(f"Excel (xlwings) error: {type(e).__name__}: {e}", 500) from e
+
+    @staticmethod
+    def _save_openpyxl(wb, path: Path) -> None:
+        wb.calculation.fullCalcOnLoad = True
+        try:
+            wb.save(path)
+        except PermissionError as e:
+            raise ExcelError("ファイルがロックされています (Excel で開いている?)。閉じるか xlwings を使ってください", 423) from e
+
+    def fill(self, file_id: str, sheet: str, src: str, dst: str) -> dict[str, Any]:
+        from . import excel_ops as X
+
+        try:
+            updates = X.fill_updates(self.view(file_id), sheet, src, dst)
+        except ValueError as e:
+            raise ExcelError(str(e), 400) from e
+        if not updates:
+            return {"ok": True, "before": {}, "updates": {}}
+        res = self.write_cells(file_id, sheet, updates)
+        return {**res, "updates": updates}
+
+    def trace(self, file_id: str, sheet: str, addr: str, depth: int = 1) -> dict[str, Any]:
+        from . import excel_ops as X
+
+        return X.trace(self.view(file_id), sheet, addr, depth)
+
+    def backups(self, file_id: str) -> list[dict[str, Any]]:
+        from . import excel_ops as X
+
+        return X.list_backups(self.path_for(file_id))
+
+    def diff_backup(self, file_id: str, name: str) -> dict[str, Any]:
+        from . import excel_ops as X
+
+        path = self.path_for(file_id)
+        try:
+            old = X.backup_path(path, name)
+        except FileNotFoundError as e:
+            raise ExcelError("backup not found", 404) from e
+        return {"backup": name, **X.diff_workbooks(old, path)}
+
+    def restore(self, file_id: str, name: str) -> dict[str, Any]:
+        from . import excel_ops as X
+
+        path = self.path_for(file_id)
+        if write_mode() == "off":
+            raise ExcelError("read-only (TERMINAL_EXCEL_WRITE=off)", 403)
+        try:
+            old = X.backup_path(path, name)
+        except FileNotFoundError as e:
+            raise ExcelError("backup not found", 404) from e
+        safety = X.backup(path, force=True)  # the current state is kept too
+        try:
+            shutil.copy2(old, path)
+        except PermissionError as e:
+            raise ExcelError("ファイルがロックされています — Excel で閉じてから復元してください", 423) from e
+        self._mark_written(file_id, path)
+        return {"ok": True, "restored": name, "previous_saved_as": safety}
+
+    def live_values(self, file_id: str) -> dict[str, Any]:
+        """Values from the workbook open in Excel (unsaved edits included). xlwings only."""
+        from . import excel_ops as X
+
+        path = self.path_for(file_id)
+        if not xlwings_available():
+            return {"open": False, "reason": "xlwings / desktop Excel not available"}
+        try:
+            res = _excel_thread().run(X.xlwings_live_values, path)
+        except Exception as e:  # noqa: BLE001
+            raise ExcelError(f"Excel (xlwings) error: {type(e).__name__}: {e}", 500) from e
+        return res or {"open": False, "reason": "workbook is not open in Excel"}
+
+    def create_workbook(self, name: str, years: list[str] | None = None, sheets: list[str] | None = None) -> dict[str, Any]:
+        from . import excel_ops as X
+
+        if write_mode() == "off":
+            raise ExcelError("read-only (TERMINAL_EXCEL_WRITE=off)", 403)
+        fname = Path(name).name
+        if not fname.lower().endswith(".xlsx"):
+            fname += ".xlsx"
+        dest = self.roots[0] / fname
+        if dest.exists():
+            raise ExcelError(f"{fname} already exists", 409)
+        X.new_workbook(dest, sheets, years)
+        return {"id": f"0/{fname}", "name": fname}
 
     @staticmethod
     def _openpyxl_write(path: Path, sheet: str, updates: dict[str, Any]) -> dict[str, Any]:
         import openpyxl
 
-        backup_dir = path.parent / ".terminal_backups"
-        backup_dir.mkdir(exist_ok=True)
-        backup = backup_dir / f"{path.stem}.{time.strftime('%Y%m%d-%H%M%S')}{path.suffix}"
-        if not backup.exists():  # one backup per second is enough when typing quickly
-            shutil.copy2(path, backup)
         wb = openpyxl.load_workbook(path, keep_vba=path.suffix.lower() == ".xlsm", keep_links=True)
         if sheet not in wb.sheetnames:
             raise ExcelError(f"sheet not found: {sheet}", 404)
@@ -458,7 +605,7 @@ class ExcelLibrary:
             wb.save(path)
         except PermissionError as e:
             raise ExcelError("ファイルがロックされています (Excel で開いている?)。閉じるか xlwings を使ってください", 423) from e
-        return {"before": before, "backup": backup.name}
+        return {"before": before}
 
     def save_upload(self, filename: str, content: bytes) -> dict[str, Any]:
         name = Path(filename).name

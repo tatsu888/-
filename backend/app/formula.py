@@ -630,3 +630,68 @@ def display(v: Any) -> str:
             return str(int(v))
         return f"{v:.10g}"
     return to_str(v)
+
+
+# ---------------------------------------------------------------------------
+# formula rewriting (copy / fill with relative references) and dependency analysis
+# ---------------------------------------------------------------------------
+_STR_SPLIT = re.compile(r'("(?:[^"]|"")*")')
+_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_.$!'])"                               # not part of a name / already qualified
+    r"((?:'(?:[^']|'')+'|[A-Za-z_][\w.]*)!)?"              # optional sheet
+    r"(\$?)([A-Za-z]{1,3})(\$?)(\d+)"                      # cell
+    r"(?::(\$?)([A-Za-z]{1,3})(\$?)(\d+))?"                # optional range end
+    r"(?![\w(])"                                           # not a function name like LOG10(
+)
+MAX_COL, MAX_ROW = 16384, 1048576
+
+
+def _shift_part(cd: str, col: str, rd: str, row: str, dr: int, dc: int) -> str | None:
+    c = col_to_num(col) + (0 if cd else dc)
+    r = int(row) + (0 if rd else dr)
+    if c < 1 or r < 1 or c > MAX_COL or r > MAX_ROW:
+        return None
+    return f"{cd}{num_to_col(c)}{rd}{r}"
+
+
+def shift_formula(formula: str, dr: int, dc: int) -> str:
+    """Shift relative references like Excel does when a formula is copied by (dr rows, dc cols).
+    $-anchored parts stay. References pushed off the sheet become #REF!."""
+    if not formula.startswith("="):
+        return formula
+    parts = _STR_SPLIT.split(formula)
+    for i in range(0, len(parts), 2):  # even indexes are outside string literals
+        def repl(m: re.Match) -> str:
+            sheet = m.group(1) or ""
+            a = _shift_part(m.group(2), m.group(3), m.group(4), m.group(5), dr, dc)
+            if m.group(7):
+                b = _shift_part(m.group(6), m.group(7), m.group(8), m.group(9), dr, dc)
+                return f"{sheet}{a}:{b}" if a and b else "#REF!"
+            return f"{sheet}{a}" if a else "#REF!"
+        parts[i] = _REF_RE.sub(repl, parts[i])
+    return "".join(parts)
+
+
+def references(formula: str, sheet: str, max_cells: int = 5000) -> list[tuple[str, str]]:
+    """Cells a formula refers to, as (sheet, "A1"); ranges are expanded (capped at max_cells)."""
+    if not formula or not formula.startswith("="):
+        return []
+    out: list[tuple[str, str]] = []
+    parts = _STR_SPLIT.split(formula)
+    for i in range(0, len(parts), 2):
+        for m in _REF_RE.finditer(parts[i]):
+            sh = sheet
+            if m.group(1):
+                raw = m.group(1)[:-1]
+                sh = raw[1:-1].replace("''", "'") if raw.startswith("'") else raw
+            r1, c1 = int(m.group(5)), col_to_num(m.group(3))
+            if m.group(7):
+                r2, c2 = int(m.group(9)), col_to_num(m.group(7))
+                for r in range(min(r1, r2), max(r1, r2) + 1):
+                    for c in range(min(c1, c2), max(c1, c2) + 1):
+                        out.append((sh, f"{num_to_col(c)}{r}"))
+                        if len(out) >= max_cells:
+                            return out
+            else:
+                out.append((sh, f"{num_to_col(c1)}{r1}"))
+    return list(dict.fromkeys(out))
